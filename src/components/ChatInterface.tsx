@@ -522,7 +522,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
         <div className="mt-2 flex flex-wrap gap-2">
           <button 
             type="button" 
-            onClick={() => setInput("Where is the most cheapest of Standard D8s v4 in US regions?")}
+            onClick={() => setInput("Which US Azure region offers the lowest price for the Standard D8s v4 VM?")}
             disabled={loading}
             className="text-xs bg-white py-1 px-2 rounded-full border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
           >

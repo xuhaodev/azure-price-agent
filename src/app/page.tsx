@@ -10,20 +10,20 @@ export default function Home() {
   const [results, setResults] = useState<PricingItem[]>([]);
   const [chatHeight, setChatHeight] = useState('450px');
 
-  // 根据屏幕高度动态调整聊天框高度
+  // 根据屏幕高度动态调整卡片高度，完全自适应
   useEffect(() => {
     const updateChatHeight = () => {
       const vh = window.innerHeight;
-      // 为聊天框分配更合理的高度，基于屏幕高度的百分比而不是固定值
-      // 保留顶部标题区域和底部边距的空间
-      const headerHeight = 80; // 标题区域估计高度
-      const bottomMargin = 20; // 底部边距
-      const availableHeight = vh - headerHeight - bottomMargin;
+      // 计算可用高度：视口高度 - 标题区域 - 顶部padding - 底部padding - gap
+      const headerHeight = 120; // 标题区域实际高度（包含padding和margin）
+      const topPadding = 12; // py-3 = 12px
+      const bottomPadding = 12;
+      const gap = 16; // gap-4 = 16px
+      const availableHeight = vh - headerHeight - topPadding - bottomPadding - gap;
       
-      // 确保聊天窗口有足够但不过大的高度
-      const minHeight = 320;
-      const maxHeight = 700;
-      const calculatedHeight = Math.max(minHeight, Math.min(maxHeight, availableHeight * 0.85));
+      // 设置最小高度以保证基本可用性
+      const minHeight = 400;
+      const calculatedHeight = Math.max(minHeight, availableHeight);
       
       setChatHeight(`${calculatedHeight}px`);
     };
@@ -94,6 +94,26 @@ export default function Home() {
                     <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
                   </svg>
                   GitHub
+                </a>
+                
+                <span className="text-gray-300">|</span>
+                
+                <a href="mailto:haxu@microsoft.com" 
+                   className="flex items-center hover:text-blue-600 transition-colors"
+                   title="Business Contact">
+                  <svg className="w-3 h-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                    <polyline points="22,6 12,13 2,6"></polyline>
+                  </svg>
+                </a>
+                
+                <a href="mailto:xuhaoruins@hotmail.com" 
+                   className="flex items-center hover:text-purple-600 transition-colors"
+                   title="Personal Contact">
+                  <svg className="w-3 h-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="4"></circle>
+                    <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"></path>
+                  </svg>
                 </a>
               </div>
             </div>
