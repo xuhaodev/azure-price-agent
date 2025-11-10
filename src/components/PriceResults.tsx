@@ -86,7 +86,7 @@ export default function PriceResults({ items, height }: { items: PricingItem[], 
   // Download CSV function
   const downloadCSV = () => {
     // Prepare CSV headers
-    const headers = ['SKU', 'Price', 'Unit', 'Meter ID', 'Meter Name', 'Term', 'Savings Plan', 'Product', 'Region'];
+    const headers = ['SKU', 'Price', 'Unit', 'Meter ID', 'Meter Name', 'RI', 'Savings Plan', 'Product', 'Region'];
     
     // Prepare CSV rows
     const rows = sortedAndFilteredItems.map(item => {
@@ -167,40 +167,49 @@ export default function PriceResults({ items, height }: { items: PricingItem[], 
           <thead className="sticky top-0 z-10">
             <tr className="bg-gradient-to-r from-gray-50 to-gray-100">
               <th 
-                className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-40 cursor-pointer hover:bg-gray-200/50 transition-colors"
+                className="px-3 py-2.5 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-200/50 transition-colors"
+                style={{ width: '180px', minWidth: '150px' }}
                 onClick={() => handleSort('sku')}
               >
                 SKU {getSortIcon('sku')}
               </th>
               <th 
-                className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-20 cursor-pointer hover:bg-gray-200/50 transition-colors"
+                className="px-3 py-2.5 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-200/50 transition-colors"
+                style={{ width: '100px', minWidth: '90px' }}
                 onClick={() => handleSort('price')}
               >
                 Price {getSortIcon('price')}
               </th>
-              <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-16">
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider"
+                  style={{ width: '80px', minWidth: '70px' }}>
                 Unit
               </th>
-              <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-32 max-w-[200px]">
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider"
+                  style={{ width: '160px', minWidth: '140px' }}>
                 Meter ID
               </th>
-              <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-20 max-w-[150px]">
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider"
+                  style={{ width: '160px', minWidth: '140px' }}>
                 Meter Name
               </th>
-              <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-16">
-                Term
+              <th className="px-3 py-2.5 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider"
+                  style={{ width: '60px', minWidth: '50px' }}>
+                RI
               </th>
-              <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-24">
+              <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider"
+                  style={{ width: '100px', minWidth: '90px' }}>
                 Savings
               </th>
               <th 
-                className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-28 max-w-xs cursor-pointer hover:bg-gray-200/50 transition-colors"
+                className="px-3 py-2.5 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-200/50 transition-colors"
+                style={{ width: '160px', minWidth: '140px' }}
                 onClick={() => handleSort('product')}
               >
                 Product {getSortIcon('product')}
               </th>
               <th 
-                className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-24 cursor-pointer hover:bg-gray-200/50 transition-colors"
+                className="px-3 py-2.5 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-200/50 transition-colors"
+                style={{ width: '120px', minWidth: '100px' }}
                 onClick={() => handleSort('region')}
               >
                 Region {getSortIcon('region')}
@@ -215,54 +224,53 @@ export default function PriceResults({ items, height }: { items: PricingItem[], 
                   index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
                 } hover:bg-blue-50 transition-colors`}
               >
-                <td className="px-2 py-2 text-xs font-medium text-blue-600" title={item.armSkuName}>
-                  <div className="break-words max-w-[160px]">
+                <td className="px-3 py-3 text-xs font-medium text-blue-600" title={item.armSkuName}>
+                  <div className="whitespace-normal break-words" style={{ maxWidth: '170px' }}>
                     {item.armSkuName}
                   </div>
                 </td>
-                <td className="px-2 py-2 text-xs font-medium text-gray-900">
+                <td className="px-3 py-3 text-xs font-semibold text-gray-900 text-right tabular-nums whitespace-nowrap">
                   ${typeof item.retailPrice === 'number' ? item.retailPrice.toFixed(4) : item.retailPrice}
                 </td>
-                <td className="px-2 py-2 text-xs text-gray-500" title={item.unitOfMeasure}>
-                  <div className="break-words max-w-[60px]">
+                <td className="px-3 py-3 text-xs text-gray-600" title={item.unitOfMeasure}>
+                  <div className="whitespace-normal break-words" style={{ maxWidth: '75px' }}>
                     {item.unitOfMeasure}
                   </div>
                 </td>
-                <td className="px-2 py-2 text-xs text-gray-500" title={item.meterId}>
-                  <div className="break-words max-w-[180px] font-mono text-[10px]">
-                    {item.meterId}
+                <td className="px-3 py-3 text-xs text-gray-500 font-mono" title={item.meterId}>
+                  <div className="whitespace-normal break-all" style={{ maxWidth: '150px', fontSize: '10px' }}>
+                    {item.meterId || '-'}
                   </div>
                 </td>
-                <td className="px-2 py-2 text-xs text-gray-900" title={item.meterName}>
-                  <div className="break-words max-w-[120px]">
+                <td className="px-3 py-3 text-xs text-gray-700" title={item.meterName}>
+                  <div className="whitespace-normal break-words" style={{ maxWidth: '155px' }}>
                     {item.meterName}
                   </div>
                 </td>
-                <td className="px-2 py-2 text-xs text-gray-900" title={item.reservationTerm || '-'}>
-                  <div className="break-words max-w-[60px]">
-                    {item.reservationTerm || '-'}
-                  </div>
+                <td className="px-3 py-3 text-xs text-gray-600 text-center whitespace-nowrap" title={item.reservationTerm || 'Pay-as-you-go'}>
+                  {item.reservationTerm || '-'}
                 </td>
-                <td className="px-2 py-2 text-xs text-gray-900">
+                <td className="px-3 py-3 text-xs text-gray-700">
                   {item.savingsPlan && Array.isArray(item.savingsPlan) && item.savingsPlan.length > 0 ? (
                     <div className="flex flex-col space-y-0.5">
                       {item.savingsPlan.map((plan, idx) => (
-                        <div key={idx} className="text-[10px]">
-                          <span className="font-medium">{plan.term}:</span> ${plan.retailPrice}
+                        <div key={idx} className="text-[10px] whitespace-nowrap">
+                          <span className="font-medium text-gray-600">{plan.term}:</span>
+                          <span className="ml-1 text-gray-800">${plan.retailPrice}</span>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <span className="text-gray-500">-</span>
+                    <span className="text-gray-400">-</span>
                   )}
                 </td>
-                <td className="px-2 py-2 text-xs text-gray-900" title={item.productName}>
-                  <div className="break-words max-w-[120px]">
+                <td className="px-3 py-3 text-xs text-gray-700" title={item.productName}>
+                  <div className="whitespace-normal break-words" style={{ maxWidth: '155px' }}>
                     {item.productName}
                   </div>
                 </td>
-                <td className="px-2 py-2 text-xs text-gray-900" title={getRegionDisplayName(item.armRegionName)}>
-                  <div className="break-words max-w-[100px]">
+                <td className="px-3 py-3 text-xs text-gray-700 font-medium" title={getRegionDisplayName(item.armRegionName)}>
+                  <div className="whitespace-normal break-words" style={{ maxWidth: '115px' }}>
                     {getRegionDisplayName(item.armRegionName)}
                   </div>
                 </td>

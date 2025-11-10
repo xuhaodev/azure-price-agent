@@ -75,7 +75,7 @@ export default function Home() {
               
               {/* 更紧凑的链接区 */}
               <div className="flex items-center text-xs gap-3">
-                <a href="https://prices.azure.com/api/retail/prices?api-version=2023-01-01-preview" 
+                <a href="https://learn.microsoft.com/en-us/rest/api/cost-management/retail-prices/azure-retail-prices" 
                    className="flex items-center hover:text-blue-600 transition-colors" 
                    target="_blank" 
                    rel="noopener noreferrer">

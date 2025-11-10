@@ -389,7 +389,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
           </div>
         ))}
         
-        {/* Agent Activity - 独立显示在前面，固定3行高度，与下方回复泡泡宽度相同 */}
+        {/* Agent Activity - 优先显示在最上方，固定3行高度 */}
         {executionSteps.length > 0 && (
           <div className="mb-4 flex justify-start">
             <div className="relative max-w-[85%] mr-auto w-full" style={{ maxWidth: '85%' }}>
@@ -430,7 +430,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
           </div>
         )}
         
-        {/* 流式响应 - 独立显示，与上方 Activity 泡泡宽度相同 */}
+        {/* 流式响应 - 显示在 Agent Activity 之后 */}
         {streamingResponse && (
           <div className="mb-4 flex justify-start">
             <div className="relative max-w-[85%] mr-auto w-full" style={{ maxWidth: '85%' }}>
