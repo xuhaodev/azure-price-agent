@@ -5,13 +5,13 @@ export const maxDuration = 60; // Set max duration to 60 seconds
 
 export async function POST(request: NextRequest) {
     try {
-        const { prompt } = await request.json();
+        const { prompt, previous_response_id } = await request.json();
         if (!prompt) {
             return Response.json({ error: 'Prompt is required' }, { status: 400 });
         }
         
         // 使用更新后的 queryPricing 函数，返回流式响应
-        const stream = await queryPricingWithStreamingResponse(prompt);
+        const stream = await queryPricingWithStreamingResponse(prompt, previous_response_id || undefined);
         
         // 返回流式响应
         return new Response(stream, {

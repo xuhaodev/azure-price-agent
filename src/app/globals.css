@@ -40,6 +40,31 @@ body {
   background: #a8a8a8;
 }
 
+/* Agent Activity 滚动条样式 */
+.agent-activity-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.agent-activity-scroll::-webkit-scrollbar-track {
+  background: #dbeafe;
+  border-radius: 4px;
+}
+
+.agent-activity-scroll::-webkit-scrollbar-thumb {
+  background: #93c5fd;
+  border-radius: 4px;
+}
+
+.agent-activity-scroll::-webkit-scrollbar-thumb:hover {
+  background: #60a5fa;
+}
+
+/* Firefox 滚动条样式 */
+.agent-activity-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #93c5fd #dbeafe;
+}
+
 @layer base {
   * {
     @apply border-gray-200;

@@ -37,11 +37,15 @@ type PricingContext = {
 
 type PricingWorkflowHooks = {
     onPriceData?: (data: PricingContext & { totalCount: number }) => void | Promise<void>;
+    onStepUpdate?: (step: string) => void | Promise<void>;
+    onToolCallStart?: (toolCall: { name: string; arguments: string }) => void | Promise<void>;
+    onToolCallComplete?: (toolCall: { name: string; resultCount: number }) => void | Promise<void>;
 };
 
 type PricingWorkflowResult = {
     aiResponse: string;
     pricingContext?: PricingContext;
+    responseId: string; // 返回 response_id 用于维护会话
 };
 
 let cachedClient: OpenAI | null = null;
@@ -184,18 +188,30 @@ function extractOutputText(response: Response): string {
     return textChunks.join('');
 }
 
-async function executePricingWorkflow(prompt: string, hooks: PricingWorkflowHooks = {}): Promise<PricingWorkflowResult> {
+async function executePricingWorkflow(
+    prompt: string, 
+    previousResponseId: string | undefined,
+    hooks: PricingWorkflowHooks = {}
+): Promise<PricingWorkflowResult> {
     const client = getOpenAIClient();
     const model = getDeploymentName();
     const processedCalls = new Set<string>();
     let latestPricingContext: PricingContext | undefined;
 
+    // Notify: Starting analysis
+    if (hooks.onStepUpdate) {
+        await hooks.onStepUpdate('🔍 Analyzing your query and planning data collection...');
+    }
+
     let response: Response = await client.responses.create({
         model,
         input: buildConversation(prompt),
         tools: [PRICE_QUERY_TOOL],
-        reasoning: { effort: "low" }
+        reasoning: { effort: "low" },
+        ...(previousResponseId ? { previous_response_id: previousResponseId } : {})
     });
+
+    let iterationCount = 0;
 
     while (true) {
         const toolCalls = extractUnprocessedToolCalls(response, processedCalls);
@@ -204,16 +220,51 @@ async function executePricingWorkflow(prompt: string, hooks: PricingWorkflowHook
             break;
         }
 
+        iterationCount++;
+
+        // Notify: Found tool calls
+        if (hooks.onStepUpdate && toolCalls.length > 0) {
+            await hooks.onStepUpdate(`📋 Query plan created: ${toolCalls.length} pricing ${toolCalls.length > 1 ? 'queries' : 'query'} to execute`);
+        }
+
         const toolOutputs: ResponseInput = [];
 
-        for (const toolCall of toolCalls) {
+        for (let i = 0; i < toolCalls.length; i++) {
+            const toolCall = toolCalls[i];
             const queryFilter = parseQueryFilter(toolCall);
+
+            // Notify: Starting tool call
+            if (hooks.onToolCallStart) {
+                await hooks.onToolCallStart({
+                    name: toolCall.name,
+                    arguments: toolCall.arguments || '{}'
+                });
+            }
+
+            // Notify progress
+            if (hooks.onStepUpdate) {
+                await hooks.onStepUpdate(`⏳ Executing query ${i + 1}/${toolCalls.length}: Fetching pricing data...`);
+            }
+
             const priceData = await fetchPrices(queryFilter);
 
             latestPricingContext = {
                 Items: priceData.Items,
                 filter: queryFilter
             };
+
+            // Notify: Tool call complete
+            if (hooks.onToolCallComplete) {
+                await hooks.onToolCallComplete({
+                    name: toolCall.name,
+                    resultCount: priceData.Items.length
+                });
+            }
+
+            // Notify progress
+            if (hooks.onStepUpdate) {
+                await hooks.onStepUpdate(`✅ Query ${i + 1}/${toolCalls.length} complete: Retrieved ${priceData.Items.length} pricing records`);
+            }
 
             if (hooks.onPriceData) {
                 await hooks.onPriceData({
@@ -234,6 +285,11 @@ async function executePricingWorkflow(prompt: string, hooks: PricingWorkflowHook
             processedCalls.add(toolCall.call_id);
         }
 
+        // Notify: Processing results
+        if (hooks.onStepUpdate) {
+            await hooks.onStepUpdate('🤔 Analyzing pricing data and preparing recommendations...');
+        }
+
         response = await client.responses.create({
             model,
             previous_response_id: response.id,
@@ -242,37 +298,59 @@ async function executePricingWorkflow(prompt: string, hooks: PricingWorkflowHook
         });
     }
 
+    // Notify: Finalizing
+    if (hooks.onStepUpdate) {
+        await hooks.onStepUpdate('✨ Finalizing response...');
+    }
+
     const aiResponse = extractOutputText(response).trim();
 
     return {
         aiResponse,
-        pricingContext: latestPricingContext
+        pricingContext: latestPricingContext,
+        responseId: response.id // 返回 response_id
     };
 }
 
-export async function queryPricing(prompt: string): Promise<{ filter?: string, items?: PricingItem[], aiResponse: string }> {
-    const { aiResponse, pricingContext } = await executePricingWorkflow(prompt);
+export async function queryPricing(
+    prompt: string, 
+    previousResponseId?: string
+): Promise<{ filter?: string, items?: PricingItem[], aiResponse: string, responseId: string }> {
+    const { aiResponse, pricingContext, responseId } = await executePricingWorkflow(prompt, previousResponseId);
 
     if (!pricingContext) {
         return {
-            aiResponse: aiResponse || 'No response generated'
+            aiResponse: aiResponse || 'No response generated',
+            responseId
         };
     }
 
     return {
         filter: pricingContext.filter,
         items: pricingContext.Items,
-        aiResponse: aiResponse || 'No response generated'
+        aiResponse: aiResponse || 'No response generated',
+        responseId
     };
 }
 
-export async function queryPricingWithStreamingResponse(prompt: string): Promise<ReadableStream> {
+export async function queryPricingWithStreamingResponse(
+    prompt: string,
+    previousResponseId?: string
+): Promise<ReadableStream> {
     const encoder = new TextEncoder();
 
     return new ReadableStream({
         async start(controller) {
             try {
-                const { aiResponse, pricingContext } = await executePricingWorkflow(prompt, {
+                const { aiResponse, pricingContext, responseId } = await executePricingWorkflow(prompt, previousResponseId, {
+                    onStepUpdate: async (step) => {
+                        // Send step update to client
+                        const stepPayload = {
+                            type: 'step_update',
+                            data: { message: step }
+                        };
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify(stepPayload)}\n\n`));
+                    },
                     onPriceData: async (data) => {
                         const payload = {
                             type: 'price_data',
@@ -285,6 +363,13 @@ export async function queryPricingWithStreamingResponse(prompt: string): Promise
                         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
                     }
                 });
+
+                // 首先发送 response_id 给客户端，用于下一轮对话
+                const responseIdPayload = {
+                    type: 'response_id',
+                    data: { response_id: responseId }
+                };
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(responseIdPayload)}\n\n`));
 
                 if (!pricingContext) {
                     const directPayload = {

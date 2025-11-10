@@ -34,14 +34,20 @@ export default function Home() {
     return () => window.removeEventListener('resize', updateChatHeight);
   }, []);
 
-  const handleResults = ({items, filter}: {items: PricingItem[], filter: string}) => {
-    setResults(items);
-    console.log('OData Query Filter:', filter);
+  const handleResults = ({items, filter, append = false}: {items: PricingItem[], filter: string, append?: boolean}) => {
+    if (append) {
+      // 追加模式：将新数据添加到现有结果
+      setResults(prev => [...prev, ...items]);
+    } else {
+      // 替换模式：清空并设置新数据
+      setResults(items);
+    }
+    console.log('OData Query Filter:', filter, `(${append ? 'appended' : 'replaced'} ${items.length} items)`);
   };
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 py-3 px-4 md:py-4">
-      <div className="max-w-6xl mx-auto">
+      <div className="w-full mx-auto">
         {/* 紧凑化的标题区域 */}
         <div className="relative bg-white rounded-2xl shadow-lg overflow-hidden mb-4">
           <div className="absolute inset-0 bg-gradient-to-br from-blue-600/5 to-purple-600/5 z-0"></div>
@@ -93,11 +99,21 @@ export default function Home() {
             </div>
             
             {/* 短小介绍线 */}
-            <p className="text-xs text-gray-500 mb-2">
-              Search Azure pricing with natural language
+            <p className="text-xs text-gray-600 mb-2">
+              Search prices, meter IDs, compare options, and more — powered by Agentic AI with Azure OpenAI Response API & GPT-5-codex
             </p>
-            
-            {/* 扩大的聊天窗口 */}
+          </div>
+        </div>
+        
+        {/* Chat interface and results in the same row */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          {/* Results section - takes 7 columns on large screens, now on the left */}
+          <div className={`lg:col-span-7 transition-opacity duration-300 ${results.length > 0 ? 'opacity-100' : 'opacity-0'}`}>
+            {results.length > 0 && <PriceResults items={results} height={chatHeight} />}
+          </div>
+          
+          {/* Chat interface - takes 5 columns on large screens, now on the right */}
+          <div className="lg:col-span-5">
             <div 
               style={{ height: chatHeight }} 
               className="rounded-xl overflow-hidden border border-gray-200 shadow-lg transition-all"
@@ -105,11 +121,6 @@ export default function Home() {
               <ChatInterface onResults={handleResults} />
             </div>
           </div>
-        </div>
-        
-        {/* Results section with smooth transition */}
-        <div id="results" className={`transition-opacity duration-300 ${results.length > 0 ? 'opacity-100' : 'opacity-0'}`}>
-          {results.length > 0 && <PriceResults items={results} />}
         </div>
       </div>
     </main>

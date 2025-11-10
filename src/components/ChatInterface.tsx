@@ -15,6 +15,7 @@ type ResultsData = {
   items: PricingItem[];
   filter: string;
   aiResponse?: string;
+  append?: boolean;
 };
 
 export default function ChatInterface({ onResults }: { onResults: (data: ResultsData) => void }) {
@@ -23,9 +24,12 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
   const [loading, setLoading] = useState(false);
   const [typingAnimation, setTypingAnimation] = useState(false);
   const [streamingResponse, setStreamingResponse] = useState('');
+  const [executionSteps, setExecutionSteps] = useState<string[]>([]);
+  const [sessionResponseId, setSessionResponseId] = useState<string | null>(null); // 维护会话上下文
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const activityScrollRef = useRef<HTMLDivElement>(null); // Agent Activity 滚动容器
 
   useEffect(() => {
     // Add initial message
@@ -39,14 +43,21 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
   }, []);
 
   useEffect(() => {
-    // 修改滚动逻辑，仅在聊天容器内部滚动，而不是整个页面
+    // 修改滚动逻辑,仅在聊天容器内部滚动,而不是整个页面
     if (messagesEndRef.current && chatContainerRef.current) {
       const chatContainer = chatContainerRef.current.querySelector('.overflow-y-auto');
       if (chatContainer) {
         chatContainer.scrollTop = chatContainer.scrollHeight;
       }
     }
-  }, [messages, streamingResponse]);
+  }, [messages, streamingResponse, executionSteps]);
+
+  // 当 executionSteps 更新时，自动滚动 Agent Activity 到最新内容
+  useEffect(() => {
+    if (activityScrollRef.current) {
+      activityScrollRef.current.scrollTop = activityScrollRef.current.scrollHeight;
+    }
+  }, [executionSteps]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,13 +89,19 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     setLoading(true);
     setTypingAnimation(true);
     setStreamingResponse('');
+    setExecutionSteps([]);
+
+    // 注意：不再自动清空结果表，只有当收到新的 price_data 时才更新
 
     try {
-      // 使用流式API
+      // 使用流式API，传递 previous_response_id 以维护对话上下文
       const response = await fetch('/api/prices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: userMessage }),
+        body: JSON.stringify({ 
+          prompt: userMessage,
+          previous_response_id: sessionResponseId // 传递上一轮的 response_id
+        }),
       });
 
       if (!response.ok) {
@@ -101,6 +118,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
       let aiResponseComplete = false;
       let fullAiResponse = '';
       let buffer = ''; // 添加缓冲区用于处理不完整的 JSON
+      let priceDataCount = 0; // 追踪已收到的 price_data 数量
 
       // 读取流式响应
       while (!aiResponseComplete) {
@@ -134,21 +152,29 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
               
               // 处理不同类型的消息
               switch(data.type) {
+                case 'response_id':
+                  // 更新会话的 response_id
+                  if (data.data.response_id) {
+                    setSessionResponseId(data.data.response_id);
+                  }
+                  break;
+
+                case 'step_update':
+                  // 收到执行步骤更新
+                  setExecutionSteps(prev => [...prev, data.data.message]);
+                  break;
+
                 case 'price_data':
-                  // 收到价格数据，先显示给用户
+                  // 收到价格数据，以追加方式显示给用户
                   priceDataReceived = true;
+                  priceDataCount++;
+                  
                   onResults({
                     items: data.data.Items,
                     filter: data.data.filter,
-                    aiResponse: undefined // 先不设置AI响应，因为还在流式处理中
+                    aiResponse: undefined, // 先不设置AI响应，因为还在流式处理中
+                    append: priceDataCount > 1 // 第一次替换，后续追加
                   });
-                  
-                  // 保持原始的加载状态消息，不显示处理记录数量
-                  // setMessages(prev => prev.map(msg => 
-                  //   msg.id === loadingMsgId 
-                  //     ? { ...msg, content: `Processing ${data.data.Items.length} price records...` } 
-                  //     : msg
-                  // ));
                   break;
                   
                 case 'ai_response_chunk':
@@ -173,12 +199,8 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                         : msg
                     ));
                     
-                    // 确保也更新结果中的AI响应
-                    onResults({
-                      items: data.data.Items,
-                      filter: data.data.filter,
-                      aiResponse: fullAiResponse || data.data.content
-                    });
+                    // 最终更新不需要追加（因为数据已经在之前追加过了）
+                    // 这里只是更新 aiResponse
                   }
                   break;
                 
@@ -197,7 +219,8 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                   onResults({
                     items: [],
                     filter: '',
-                    aiResponse: data.data.content
+                    aiResponse: data.data.content,
+                    append: false
                   });
                   break;
                   
@@ -229,6 +252,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
 
         setTypingAnimation(false);
         setStreamingResponse('');
+        setExecutionSteps([]);
       }
       
     } catch (error) {
@@ -236,6 +260,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
       
       setTypingAnimation(false);
       setStreamingResponse('');
+      setExecutionSteps([]);
       
       // Update error message - find the loading message by ID and replace it
       setMessages(prev => prev.map(msg => 
@@ -248,8 +273,39 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     }
   };
 
+  const handleClearChat = () => {
+    setMessages([
+      {
+        role: 'assistant',
+        content: 'Welcome to Azure Price Agent! You can ask everything about Azure prices.',
+        id: 'welcome-message'
+      }
+    ]);
+    setInput('');
+    setStreamingResponse('');
+    setExecutionSteps([]);
+    setSessionResponseId(null); // 重置会话上下文
+    onResults({ items: [], filter: '', append: false });
+  };
+
   return (
     <div ref={chatContainerRef} className="flex flex-col bg-white rounded-xl shadow-lg overflow-hidden h-full">
+      {/* Header with Clear Chat button */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50 flex-shrink-0">
+        <h3 className="text-sm font-semibold text-gray-700">Chat</h3>
+        <button
+          onClick={handleClearChat}
+          disabled={loading}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-600 hover:text-gray-900 hover:bg-white/80 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Clear chat history"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+            <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+          </svg>
+          Clear
+        </button>
+      </div>
+      
       {/* Message display area */}
       <div className="flex-1 p-4 overflow-y-auto">
         {messages.map((msg, index) => (
@@ -295,7 +351,15 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                         components={{
                           pre: (props) => <pre className="bg-gray-800 text-white p-3 rounded-md overflow-auto my-2 text-sm" {...props} />,
                           code: (props) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono" {...props} />,
-                          p: (props) => <p className="text-sm md:text-base mb-2 last:mb-0" {...props} />
+                          p: (props) => <p className="text-sm md:text-base mb-2 last:mb-0" {...props} />,
+                          table: (props) => (
+                            <div className="overflow-x-auto my-2">
+                              <table className="min-w-full text-xs border-collapse border border-gray-300" {...props} />
+                            </div>
+                          ),
+                          thead: (props) => <thead className="bg-gray-200" {...props} />,
+                          th: (props) => <th className="border border-gray-300 px-2 py-1 text-left font-semibold" {...props} />,
+                          td: (props) => <td className="border border-gray-300 px-2 py-1" {...props} />
                         }}
                       >
                         {msg.content}
@@ -325,10 +389,51 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
           </div>
         ))}
         
-        {/* 流式响应的显示 */}
+        {/* Agent Activity - 独立显示在前面，固定3行高度，与下方回复泡泡宽度相同 */}
+        {executionSteps.length > 0 && (
+          <div className="mb-4 flex justify-start">
+            <div className="relative max-w-[85%] mr-auto w-full" style={{ maxWidth: '85%' }}>
+              <div className="p-2.5 rounded-xl shadow-sm bg-blue-50 border border-blue-200">
+                <div className="text-xs font-semibold text-blue-700 mb-1.5">🔄 Agent Activity</div>
+                <div 
+                  ref={activityScrollRef}
+                  className="agent-activity-scroll overflow-y-auto space-y-1"
+                  style={{ 
+                    maxHeight: 'calc(3 * 1.5rem)', // 3行高度
+                  }}
+                >
+                  {executionSteps.map((step, index) => (
+                    <div 
+                      key={index} 
+                      className="flex items-start gap-2 text-xs text-gray-700 animate-fadeIn leading-6"
+                      style={{
+                        animationDelay: `${index * 0.05}s`,
+                        animationFillMode: 'backwards'
+                      }}
+                    >
+                      <span className="text-blue-500 mt-0.5 flex-shrink-0">
+                        {index === executionSteps.length - 1 ? '▸' : '✓'}
+                      </span>
+                      <span className="flex-1">{step}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              <div className="text-xs mt-1 px-1 text-gray-500">
+                Agent Activity
+              </div>
+              
+              {/* Message tail */}
+              <div className="absolute w-2 h-2 left-0 -ml-1 bg-blue-50 bottom-[16px] transform rotate-45 border-l border-b border-blue-200"></div>
+            </div>
+          </div>
+        )}
+        
+        {/* 流式响应 - 独立显示，与上方 Activity 泡泡宽度相同 */}
         {streamingResponse && (
           <div className="mb-4 flex justify-start">
-            <div className="relative max-w-[85%] mr-auto">
+            <div className="relative max-w-[85%] mr-auto w-full" style={{ maxWidth: '85%' }}>
               <div className="p-3.5 rounded-2xl shadow-sm bg-gray-100 text-gray-800 border border-gray-200/50">
                 <div className="markdown-content">
                   <ReactMarkdown 
@@ -337,7 +442,15 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                     components={{
                       pre: (props) => <pre className="bg-gray-800 text-white p-3 rounded-md overflow-auto my-2 text-sm" {...props} />,
                       code: (props) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm" {...props} />,
-                      p: (props) => <p className="text-sm md:text-base mb-2 last:mb-0" {...props} />
+                      p: (props) => <p className="text-sm md:text-base mb-2 last:mb-0" {...props} />,
+                      table: (props) => (
+                        <div className="overflow-x-auto my-2">
+                          <table className="min-w-full text-xs border-collapse border border-gray-300" {...props} />
+                        </div>
+                      ),
+                      thead: (props) => <thead className="bg-gray-200" {...props} />,
+                      th: (props) => <th className="border border-gray-300 px-2 py-1 text-left font-semibold" {...props} />,
+                      td: (props) => <td className="border border-gray-300 px-2 py-1" {...props} />
                     }}
                   >
                     {streamingResponse}
@@ -349,6 +462,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                 Azure Price Agent
               </div>
               
+              {/* Message tail */}
               <div className="absolute w-2 h-2 left-0 -ml-1 bg-gray-100 bottom-[16px] transform rotate-45"></div>
             </div>
           </div>
@@ -408,19 +522,19 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
         <div className="mt-2 flex flex-wrap gap-2">
           <button 
             type="button" 
-            onClick={() => setInput("What's the price of Standard D8s v4 in East US?")}
+            onClick={() => setInput("Where is the most cheapest of Standard D8s v4 in US regions?")}
             disabled={loading}
             className="text-xs bg-white py-1 px-2 rounded-full border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
           >
-            D8s v4 in East US
+            find cheapest D8s v4 in US
           </button>
           <button 
             type="button" 
-            onClick={() => setInput("Compare prices of GPU VMs in West US 2")}
+            onClick={() => setInput("What is meter id for Azure managed redis M50 in West US 2?")}
             disabled={loading}
             className="text-xs bg-white py-1 px-2 rounded-full border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
           >
-            GPU VMs in West US 2
+            meter id of AMR M50 in West US 2
           </button>
         </div>
       </form>

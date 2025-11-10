@@ -7,7 +7,7 @@ import { useState, useMemo } from 'react';
 type SortField = 'price' | 'product' | 'sku' | 'region' | '';
 type SortDirection = 'asc' | 'desc';
 
-export default function PriceResults({ items }: { items: PricingItem[] }) {
+export default function PriceResults({ items, height }: { items: PricingItem[], height?: string }) {
   const [sortField, setSortField] = useState<SortField>('price');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [searchTerm, setSearchTerm] = useState('');
@@ -83,71 +83,124 @@ export default function PriceResults({ items }: { items: PricingItem[] }) {
     );
   };
 
+  // Download CSV function
+  const downloadCSV = () => {
+    // Prepare CSV headers
+    const headers = ['SKU', 'Price', 'Unit', 'Meter ID', 'Meter Name', 'Term', 'Savings Plan', 'Product', 'Region'];
+    
+    // Prepare CSV rows
+    const rows = sortedAndFilteredItems.map(item => {
+      const savingsPlanText = item.savingsPlan && Array.isArray(item.savingsPlan) && item.savingsPlan.length > 0
+        ? item.savingsPlan.map(plan => `${plan.term}: $${plan.retailPrice}`).join('; ')
+        : '-';
+      
+      return [
+        item.armSkuName || '',
+        typeof item.retailPrice === 'number' ? item.retailPrice.toFixed(4) : item.retailPrice,
+        item.unitOfMeasure || '',
+        item.meterId || '',
+        item.meterName || '',
+        item.reservationTerm || '-',
+        savingsPlanText,
+        item.productName || '',
+        getRegionDisplayName(item.armRegionName) || ''
+      ];
+    });
+    
+    // Convert to CSV format
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => {
+        // Escape cells containing commas, quotes, or newlines
+        const cellStr = String(cell);
+        if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
+          return `"${cellStr.replace(/"/g, '""')}"`;
+        }
+        return cellStr;
+      }).join(','))
+    ].join('\n');
+    
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', `azure-price-results-${new Date().toISOString().slice(0, 10)}.csv`);
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    URL.revokeObjectURL(url);
+  };
+
   return (
-    <div className="bg-white rounded-2xl shadow-xl overflow-hidden my-6 border border-gray-100">
-      <div className="p-5 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <h2 className="text-xl font-semibold text-gray-800 flex items-center">
+    <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100 flex flex-col" style={{ height: height || 'auto' }}>
+      <div className="p-3 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50 flex-shrink-0">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold text-gray-800 flex items-center">
             Price Results 
-            <span className="ml-2 text-sm font-medium px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full">
-              {sortedAndFilteredItems.length} records
+            <span className="ml-2 text-xs font-medium px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full">
+              {sortedAndFilteredItems.length}
             </span>
           </h2>
           
           <div className="relative">
             <input
               type="text"
-              placeholder="Filter results..."
+              placeholder="Filter..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:border-blue-400 w-full md:w-64"
+              className="pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:border-blue-400 w-full sm:w-48"
             />
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
           </div>
         </div>
       </div>
       
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto overflow-y-auto flex-1">
         <table className="min-w-full divide-y divide-gray-200">
-          <thead>
+          <thead className="sticky top-0 z-10">
             <tr className="bg-gradient-to-r from-gray-50 to-gray-100">
               <th 
-                className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/50 transition-colors"
+                className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-40 cursor-pointer hover:bg-gray-200/50 transition-colors"
                 onClick={() => handleSort('sku')}
               >
                 SKU {getSortIcon('sku')}
               </th>
               <th 
-                className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-24 cursor-pointer hover:bg-gray-200/50 transition-colors"
+                className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-20 cursor-pointer hover:bg-gray-200/50 transition-colors"
                 onClick={() => handleSort('price')}
               >
                 Price {getSortIcon('price')}
               </th>
-              <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-20">
+              <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-16">
                 Unit
               </th>
-              <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-24 max-w-[180px]">
+              <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-32 max-w-[200px]">
                 Meter ID
               </th>
-              <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-24 max-w-[180px]">
+              <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-20 max-w-[150px]">
                 Meter Name
               </th>
-              <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-24">
+              <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-16">
                 Term
               </th>
-              <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                Savings Plan
+              <th className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-24">
+                Savings
               </th>
               <th 
-                className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-36 max-w-xs cursor-pointer hover:bg-gray-200/50 transition-colors"
+                className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-28 max-w-xs cursor-pointer hover:bg-gray-200/50 transition-colors"
                 onClick={() => handleSort('product')}
               >
                 Product {getSortIcon('product')}
               </th>
               <th 
-                className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-32 cursor-pointer hover:bg-gray-200/50 transition-colors"
+                className="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-24 cursor-pointer hover:bg-gray-200/50 transition-colors"
                 onClick={() => handleSort('region')}
               >
                 Region {getSortIcon('region')}
@@ -162,39 +215,39 @@ export default function PriceResults({ items }: { items: PricingItem[] }) {
                   index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
                 } hover:bg-blue-50 transition-colors`}
               >
-                <td className="px-3 py-2.5 text-sm font-medium text-blue-600" title={item.armSkuName}>
-                  <div className="break-words max-w-[150px]">
+                <td className="px-2 py-2 text-xs font-medium text-blue-600" title={item.armSkuName}>
+                  <div className="break-words max-w-[160px]">
                     {item.armSkuName}
                   </div>
                 </td>
-                <td className="px-3 py-2.5 text-sm font-medium text-gray-900">
+                <td className="px-2 py-2 text-xs font-medium text-gray-900">
                   ${typeof item.retailPrice === 'number' ? item.retailPrice.toFixed(4) : item.retailPrice}
                 </td>
-                <td className="px-3 py-2.5 text-sm text-gray-500" title={item.unitOfMeasure}>
-                  <div className="break-words max-w-[80px]">
+                <td className="px-2 py-2 text-xs text-gray-500" title={item.unitOfMeasure}>
+                  <div className="break-words max-w-[60px]">
                     {item.unitOfMeasure}
                   </div>
                 </td>
-                <td className="px-3 py-2.5 text-sm text-gray-500" title={item.meterId}>
-                  <div className="break-words max-w-[150px] font-mono text-xs">
+                <td className="px-2 py-2 text-xs text-gray-500" title={item.meterId}>
+                  <div className="break-words max-w-[180px] font-mono text-[10px]">
                     {item.meterId}
                   </div>
                 </td>
-                <td className="px-3 py-2.5 text-sm text-gray-900" title={item.meterName}>
-                  <div className="break-words max-w-[150px]">
+                <td className="px-2 py-2 text-xs text-gray-900" title={item.meterName}>
+                  <div className="break-words max-w-[120px]">
                     {item.meterName}
                   </div>
                 </td>
-                <td className="px-3 py-2.5 text-sm text-gray-900" title={item.reservationTerm || '-'}>
-                  <div className="break-words max-w-[80px]">
+                <td className="px-2 py-2 text-xs text-gray-900" title={item.reservationTerm || '-'}>
+                  <div className="break-words max-w-[60px]">
                     {item.reservationTerm || '-'}
                   </div>
                 </td>
-                <td className="px-3 py-2.5 text-sm text-gray-900">
+                <td className="px-2 py-2 text-xs text-gray-900">
                   {item.savingsPlan && Array.isArray(item.savingsPlan) && item.savingsPlan.length > 0 ? (
-                    <div className="flex flex-col space-y-1">
+                    <div className="flex flex-col space-y-0.5">
                       {item.savingsPlan.map((plan, idx) => (
-                        <div key={idx} className="text-sm">
+                        <div key={idx} className="text-[10px]">
                           <span className="font-medium">{plan.term}:</span> ${plan.retailPrice}
                         </div>
                       ))}
@@ -203,13 +256,13 @@ export default function PriceResults({ items }: { items: PricingItem[] }) {
                     <span className="text-gray-500">-</span>
                   )}
                 </td>
-                <td className="px-3 py-2.5 text-sm text-gray-900" title={item.productName}>
-                  <div className="break-words max-w-[150px]">
+                <td className="px-2 py-2 text-xs text-gray-900" title={item.productName}>
+                  <div className="break-words max-w-[120px]">
                     {item.productName}
                   </div>
                 </td>
-                <td className="px-3 py-2.5 text-sm text-gray-900" title={getRegionDisplayName(item.armRegionName)}>
-                  <div className="break-words max-w-[120px]">
+                <td className="px-2 py-2 text-xs text-gray-900" title={getRegionDisplayName(item.armRegionName)}>
+                  <div className="break-words max-w-[100px]">
                     {getRegionDisplayName(item.armRegionName)}
                   </div>
                 </td>
@@ -228,19 +281,21 @@ export default function PriceResults({ items }: { items: PricingItem[] }) {
       </div>
       
       {sortedAndFilteredItems.length > 0 && (
-        <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 text-right flex items-center justify-between">
-          <div className="text-sm text-gray-600">
+        <div className="border-t border-gray-200 px-3 py-2 bg-gray-50 text-right flex items-center justify-between flex-shrink-0">
+          <div className="text-xs text-gray-600">
             {searchTerm && sortedAndFilteredItems.length !== items.length ? 
-              `Filtered: ${sortedAndFilteredItems.length} of ${items.length} records` : 
-              `Showing all ${items.length} records`}
+              `${sortedAndFilteredItems.length} of ${items.length}` : 
+              `${items.length} total`}
           </div>
           <div>
             <button 
-              onClick={() => setSearchTerm('')} 
-              className={`text-sm px-3 py-1 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 transition-colors ${!searchTerm ? 'opacity-50 cursor-not-allowed' : ''}`}
-              disabled={!searchTerm}
+              onClick={downloadCSV} 
+              className="text-xs px-3 py-1 rounded-lg border border-blue-500 bg-blue-500 text-white hover:bg-blue-600 transition-colors flex items-center gap-1.5"
             >
-              Clear Filter
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Download CSV
             </button>
           </div>
         </div>
