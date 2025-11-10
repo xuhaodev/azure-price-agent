@@ -1,306 +1,318 @@
 import OpenAI from 'openai';
-import { AzureOpenAI } from 'openai';
-import type { ChatCompletionMessageParam } from 'openai/resources/chat';
+import type {
+    Response,
+    ResponseFunctionToolCallItem,
+    ResponseInput
+} from 'openai/resources/responses/responses';
+import { agentPrompt } from './agentPrompt';
 import { azureVmSize } from './azurevmsize';
 import { azureRegions } from './azure-regions';
-import { agentPrompt } from './agentPrompt';
 
-export async function queryPricing(prompt: string): Promise<{ filter?: string, items?: PricingItem[], aiResponse: string }> {
-    if (!process.env.GITHUB_TOKEN || !process.env.OPENAI_API_BASE_URL) {
-        throw new Error('Missing GitHub environment variables');
+// Responses API function tool definition (top-level name/description/parameters)
+const PRICE_QUERY_TOOL = {
+    type: 'function',
+    name: 'odata_query',
+    // description: '根据传入的 OData 查询条件从 Azure 零售价格 API 中获取数据,并返回合并后的 JSON 记录列表,仅使用 armRegionName 与 armSkuName 进行模糊查询。',
+    description: "Retrieve retail pricing information for Azure services, with filters by service name, region, currency, SKU, or price type. Useful for cost analysis and comparing Azure rates programmatically.",
+  
+    parameters: {
+        type: 'object',
+        properties: {
+            query: {
+                type: 'string',
+                //description: "OData 查询条件,例如:armRegionName eq 'southcentralus' and contains(armSkuName, 'Redis')"
+                description: "OData-style filter string to narrow results. Example: serviceName eq 'Virtual Machines' and armRegionName eq 'eastus'"
+            }
+        },
+        required: ['query'],
+        additionalProperties: false
+    },
+    strict: true
+} as const;
+
+type PricingContext = {
+    Items: PricingItem[];
+    filter: string;
+};
+
+type PricingWorkflowHooks = {
+    onPriceData?: (data: PricingContext & { totalCount: number }) => void | Promise<void>;
+};
+
+type PricingWorkflowResult = {
+    aiResponse: string;
+    pricingContext?: PricingContext;
+};
+
+let cachedClient: OpenAI | null = null;
+
+function getOpenAIClient(): OpenAI {
+    const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
+    const apiKey = process.env.AZURE_OPENAI_API_KEY;
+
+    if (!endpoint?.trim() || !apiKey?.trim()) {
+        throw new Error('Missing Azure OpenAI environment variables');
     }
 
-    if (!process.env.AOAI_KEY || !process.env.AOAI_API_BASE_URL) {
-        throw new Error('Missing Azure environment variables');
+    if (cachedClient) {
+        return cachedClient;
     }
 
-    const client = new OpenAI({
-        baseURL: process.env.OPENAI_API_BASE_URL,
-        apiKey: process.env.GITHUB_TOKEN,
-        defaultQuery: { 'api-version': '2024-10-21' }
+    const normalizedEndpoint = endpoint.replace(/\/+$/, '');
+    const baseURL = `${normalizedEndpoint}/openai/v1/`;
+
+    cachedClient = new OpenAI({
+        apiKey,
+        baseURL,
+        defaultHeaders: {
+            'api-key': apiKey
+        }
     });
 
-    const azureClient = new AzureOpenAI({
-        endpoint: process.env.AOAI_API_BASE_URL,
-        apiKey: process.env.AOAI_KEY,
-        apiVersion: '2024-05-01-preview',
-    });
+    return cachedClient;
+}
 
-    const functionMessages: ChatCompletionMessageParam[] = [
+function getDeploymentName() {
+    return process.env.AZURE_OPENAI_DEPLOYMENT_NAME || 'gpt-5-codex';
+}
+
+function buildConversation(prompt: string): ResponseInput {
+    return [
+        // {
+        //     role: "system",
+        //     content: [
+        //         {
+        //             type: "input_text",
+        //             text: "你是Azure价格查询助手，如果用户询问Azure产品价格相关问题，必须先调用odata_query，才能够回复。如果用户询问其他问题，你可以委婉地拒绝。"
+        //         }
+        //     ]
+        // },
         {
             role: "system",
-            content: `你是Azure价格查询助手，如果用户询问Azure产品价格相关问题，必须先调用odata_query，才能够回复。如果用户询问其他问题，你可以委婉地拒绝。`
+            content: [
+                {
+                    type: "input_text",
+                    text: agentPrompt
+                }
+            ]
         },
         {
             role: "user",
-            content: `Azure region mapping: ${JSON.stringify(azureRegions)}`
+            content: [
+                {
+                    type: "input_text",
+                    text: `Azure region mapping: ${JSON.stringify(azureRegions)}`
+                }
+            ]
         },
         {
             role: "user",
-            content: `Azure virtual machine size context: ${JSON.stringify(azureVmSize)}`
+            content: [
+                {
+                    type: "input_text",
+                    text: `Azure virtual machine size context: ${JSON.stringify(azureVmSize)}`
+                }
+            ]
         },
-        { role: "user", content: prompt }
-    ];
-
-    // 定义函数
-    const functions = [
         {
-            name: "odata_query",
-            description: "根据传入的 OData 查询条件从 Azure 零售价格 API 中获取数据，并返回合并后的 JSON 记录列表，仅使用 armRegionName and armSkuName 进行模糊查询.",
-            parameters: {
-                type: "object",
-                properties: {
-                    query: {
-                        type: "string",
-                        description: "OData 查询条件，使用模糊查询的方式，例如：armRegionName eq 'southcentralus' and contains(armSkuName, 'Redis')"
-                    }
-                },
-                required: ["query"]
-            }
+            role: "user",
+            content: [
+                {
+                    type: "input_text",
+                    text: prompt
+                }
+            ]
         }
-    ];
+    ] as ResponseInput;
+}
 
+function extractUnprocessedToolCalls(response: Response, processedIds: Set<string>): ResponseFunctionToolCallItem[] {
+    if (!Array.isArray(response.output)) {
+        return [];
+    }
+
+    return response.output
+        .filter(
+            (item): item is ResponseFunctionToolCallItem =>
+                item?.type === 'function_call' && typeof (item as ResponseFunctionToolCallItem).call_id === 'string'
+        )
+        .filter((toolCall) => !processedIds.has(toolCall.call_id));
+}
+
+function parseQueryFilter(toolCall: ResponseFunctionToolCallItem): string {
     try {
-        const response = await client.chat.completions.create({
-            messages: functionMessages,
-            temperature: 1,
-            model: process.env.MODEL_NAME || 'gpt-4o',
-            functions: functions,
-            function_call: "auto"
-        });
+        const parsedArgs = JSON.parse(toolCall.arguments ?? "{}");
+        const queryFilter = parsedArgs.query;
 
-        const functionCall = response.choices[0]?.message?.function_call;
-        
-        // 如果没有触发function call，直接返回第一次response的内容
-        if (!functionCall || functionCall.name !== "odata_query") {
-            const directResponse = response.choices[0]?.message?.content || 'No response generated';
-            return {
-                aiResponse: directResponse
-            };
-        }
-
-        // 只有在function call被调用时才继续获取价格数据和进行second response
-        const args = JSON.parse(functionCall.arguments || "{}");
-        const queryFilter = args.query;
-
-        if (!queryFilter) {
+        if (!queryFilter || typeof queryFilter !== 'string') {
             throw new Error('Invalid query filter generated');
         }
 
-        const priceData = await fetchPrices(queryFilter);
-        
-        if (!priceData.Items || !Array.isArray(priceData.Items)) {
-            throw new Error('Invalid price data received');
-        }
-
-        const chatMessages: ChatCompletionMessageParam[] = [
-            {
-                role: "system",
-                content: agentPrompt
-            },
-            {
-                role: "user",
-                content: `Price Context: ${JSON.stringify(priceData.Items)}`
-            },
-            { role: "user", content: prompt }
-        ];
-
-        // Second call
-        try {
-            const secondResponse = await azureClient.chat.completions.create({
-                messages: chatMessages,
-                temperature: 0.7,
-                model: 'gpt-4o-mini'
-            });
-
-            const aiResponse = secondResponse.choices[0]?.message?.content || '';
-
-            console.log('Returning price data:', {
-                itemsCount: priceData.Items.length,
-                filter: queryFilter,
-                hasAiResponse: !!aiResponse
-            });
-
-            return {
-                filter: queryFilter,
-                items: priceData.Items,
-                aiResponse: aiResponse
-            };
-        } catch (error) {
-            console.error('Second OpenAI API Error:', error);
-            return {
-                filter: queryFilter,
-                items: priceData.Items,
-                aiResponse: `Error during processing: ${error instanceof Error ? error.message : 'Unknown error'}`
-            };
-        }
-
+        return queryFilter;
     } catch (error) {
-        console.error('OpenAI API Error:', error);
-        throw new Error('Failed to process query');
+        console.error('Failed to parse tool arguments:', error);
+        throw new Error('Invalid tool arguments received');
     }
 }
 
+function extractOutputText(response: Response): string {
+    if (typeof response?.output_text === 'string') {
+        return response.output_text;
+    }
+
+    if (!Array.isArray(response?.output)) {
+        return '';
+    }
+
+    const textChunks = response.output.flatMap((item) => {
+        if (!('content' in item)) {
+            return [];
+        }
+
+        const content = (item as { content?: Array<{ type?: string; text?: string }> }).content;
+
+        if (!Array.isArray(content)) {
+            return [];
+        }
+
+        return content
+            .filter((contentItem) => contentItem?.type === 'output_text' || contentItem?.type === 'text')
+            .map((contentItem) => (typeof contentItem?.text === 'string' ? contentItem.text : ''))
+            .filter(Boolean);
+    });
+
+    return textChunks.join('');
+}
+
+async function executePricingWorkflow(prompt: string, hooks: PricingWorkflowHooks = {}): Promise<PricingWorkflowResult> {
+    const client = getOpenAIClient();
+    const model = getDeploymentName();
+    const processedCalls = new Set<string>();
+    let latestPricingContext: PricingContext | undefined;
+
+    let response: Response = await client.responses.create({
+        model,
+        input: buildConversation(prompt),
+        tools: [PRICE_QUERY_TOOL],
+        reasoning: { effort: "low" }
+    });
+
+    while (true) {
+        const toolCalls = extractUnprocessedToolCalls(response, processedCalls);
+
+        if (toolCalls.length === 0) {
+            break;
+        }
+
+        const toolOutputs: ResponseInput = [];
+
+        for (const toolCall of toolCalls) {
+            const queryFilter = parseQueryFilter(toolCall);
+            const priceData = await fetchPrices(queryFilter);
+
+            latestPricingContext = {
+                Items: priceData.Items,
+                filter: queryFilter
+            };
+
+            if (hooks.onPriceData) {
+                await hooks.onPriceData({
+                    ...latestPricingContext,
+                    totalCount: priceData.Items.length
+                });
+            }
+
+            toolOutputs.push({
+                type: 'function_call_output',
+                call_id: toolCall.call_id,
+                output: JSON.stringify({
+                    Items: priceData.Items,
+                    filter: queryFilter
+                })
+            });
+
+            processedCalls.add(toolCall.call_id);
+        }
+
+        response = await client.responses.create({
+            model,
+            previous_response_id: response.id,
+            input: toolOutputs,
+            reasoning: { effort: "low" }
+        });
+    }
+
+    const aiResponse = extractOutputText(response).trim();
+
+    return {
+        aiResponse,
+        pricingContext: latestPricingContext
+    };
+}
+
+export async function queryPricing(prompt: string): Promise<{ filter?: string, items?: PricingItem[], aiResponse: string }> {
+    const { aiResponse, pricingContext } = await executePricingWorkflow(prompt);
+
+    if (!pricingContext) {
+        return {
+            aiResponse: aiResponse || 'No response generated'
+        };
+    }
+
+    return {
+        filter: pricingContext.filter,
+        items: pricingContext.Items,
+        aiResponse: aiResponse || 'No response generated'
+    };
+}
+
 export async function queryPricingWithStreamingResponse(prompt: string): Promise<ReadableStream> {
-    if (!process.env.GITHUB_TOKEN || !process.env.OPENAI_API_BASE_URL) {
-        throw new Error('Missing GitHub environment variables');
-    }
-
-    if (!process.env.AOAI_KEY || !process.env.AOAI_API_BASE_URL) {
-        throw new Error('Missing Azure environment variables');
-    }
-
-    const client = new OpenAI({
-        baseURL: process.env.OPENAI_API_BASE_URL,
-        apiKey: process.env.GITHUB_TOKEN,
-        defaultQuery: { 'api-version': '2024-10-21' }
-    });
-
-    const azureClient = new AzureOpenAI({
-        endpoint: process.env.AOAI_API_BASE_URL,
-        apiKey: process.env.AOAI_KEY,
-        apiVersion: '2024-05-01-preview',
-    });
-
     const encoder = new TextEncoder();
 
-    const functions = [
-        {
-            name: "odata_query",
-            description: "根据传入的 OData 查询条件从 Azure 零售价格 API 中获取数据，并返回合并后的 JSON 记录列表，仅使用 armRegionName and armSkuName 进行模糊查询.",
-            parameters: {
-                type: "object",
-                properties: {
-                    query: {
-                        type: "string",
-                        description: "OData 查询条件，使用模糊查询的方式，例如：armRegionName eq 'southcentralus' and contains(armSkuName, 'Redis')"
-                    }
-                },
-                required: ["query"]
-            }
-        }
-    ];
-
-    // 创建可读流
-    const stream = new ReadableStream({
+    return new ReadableStream({
         async start(controller) {
             try {
-                // 步骤1: 生成查询条件
-                const functionMessages: ChatCompletionMessageParam[] = [
-                    {
-                        role: "system",
-                        content: `你是Azure价格查询助手，如果用户询问Azure产品价格相关问题，必须先调用odata_query，才能够回复。`
-                    },
-                    {
-                        role: "user",
-                        content: `Azure region mapping: ${JSON.stringify(azureRegions)}`
-                    },
-                    {
-                        role: "user",
-                        content: `Azure virtual machine size context: ${JSON.stringify(azureVmSize)}`
-                    },
-                    { role: "user", content: prompt }
-                ];
-
-                const response = await client.chat.completions.create({
-                    messages: functionMessages,
-                    temperature: 1,
-                    model: process.env.MODEL_NAME || 'gpt-4o',
-                    functions: functions,
-                    function_call: "auto"
+                const { aiResponse, pricingContext } = await executePricingWorkflow(prompt, {
+                    onPriceData: async (data) => {
+                        const payload = {
+                            type: 'price_data',
+                            data: {
+                                Items: data.Items,
+                                totalCount: data.totalCount,
+                                filter: data.filter
+                            }
+                        };
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+                    }
                 });
 
-                const functionCall = response.choices[0]?.message?.function_call;
-                
-                // 如果没有触发function call，直接返回第一次response的内容
-                if (!functionCall || functionCall.name !== "odata_query") {
-                    const directResponse = response.choices[0]?.message?.content || 'No response generated';
-                    
-                    // 发送直接响应作为完整消息
-                    const directResponseData = {
+                if (!pricingContext) {
+                    const directPayload = {
                         type: 'direct_response',
-                        data: { content: directResponse }
+                        data: { content: aiResponse || 'No response generated' }
                     };
-                    
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(directResponseData)}\n\n`));
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(directPayload)}\n\n`));
                     controller.close();
                     return;
                 }
 
-                const args = JSON.parse(functionCall.arguments || "{}");
-                const queryFilter = args.query;
-
-                if (!queryFilter) {
-                    throw new Error('Invalid query filter generated');
+                if (aiResponse) {
+                    const chunkPayload = {
+                        type: 'ai_response_chunk',
+                        data: { content: aiResponse }
+                    };
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunkPayload)}\n\n`));
                 }
 
-                // 步骤2: 获取价格数据
-                const priceData = await fetchPrices(queryFilter);
-                
-                if (!priceData.Items || !Array.isArray(priceData.Items)) {
-                    throw new Error('Invalid price data received');
-                }
-
-                // 步骤3: 立即返回价格数据，这样前端可以先显示
-                const initialData = {
-                    type: 'price_data',
-                    data: {
-                        Items: priceData.Items,
-                        totalCount: priceData.Items.length,
-                        filter: queryFilter
-                    }
-                };
-
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(initialData)}\n\n`));
-
-                // 步骤4: 启动流式聊天补全
-                const chatMessages: ChatCompletionMessageParam[] = [
-                    {
-                        role: "system",
-                        content: agentPrompt
-                    },
-                    {
-                        role: "user",
-                        content: `Price Context: ${JSON.stringify(priceData.Items)}`
-                    },
-                    { role: "user", content: prompt }
-                ];
-
-                const streamResponse = await azureClient.chat.completions.create({
-                    messages: chatMessages,
-                    temperature: 0.7,
-                    model: 'gpt-4o-mini',
-                    stream: true
-                });
-
-                // 步骤5: 流式处理聊天补全响应
-                let aiResponseText = '';
-
-                for await (const chunk of streamResponse) {
-                    const content = chunk.choices[0]?.delta?.content || '';
-                    if (content) {
-                        aiResponseText += content;
-                        
-                        const chunkData = {
-                            type: 'ai_response_chunk',
-                            data: { content }
-                        };
-                        
-                        controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunkData)}\n\n`));
-                    }
-                }
-
-                // 步骤6: 发送完整的聊天响应以便客户端可以最终存储
-                const finalData = {
+                const completionPayload = {
                     type: 'ai_response_complete',
-                    data: { 
-                        content: aiResponseText,
-                        Items: priceData.Items,
-                        filter: queryFilter
+                    data: {
+                        content: aiResponse || 'No response generated',
+                        Items: pricingContext.Items,
+                        filter: pricingContext.filter
                     }
                 };
-
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(finalData)}\n\n`));
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(completionPayload)}\n\n`));
                 controller.close();
 
             } catch (error) {
@@ -314,8 +326,6 @@ export async function queryPricingWithStreamingResponse(prompt: string): Promise
             }
         }
     });
-
-    return stream;
 }
 
 export async function fetchPrices(filter: string) {
@@ -335,6 +345,7 @@ export async function fetchPrices(filter: string) {
                 retailPrice: item.retailPrice,
                 unitOfMeasure: item.unitOfMeasure,
                 armRegionName: item.armRegionName,
+                meterId: item.meterId,
                 meterName: item.meterName,
                 productName: item.productName,
                 type: item.type,
@@ -357,6 +368,7 @@ export interface PricingItem {
     retailPrice: number;
     unitOfMeasure: string;
     armRegionName: string;
+    meterId: string;
     meterName: string;
     productName: string;
     type: string;

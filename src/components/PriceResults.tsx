@@ -129,7 +129,10 @@ export default function PriceResults({ items }: { items: PricingItem[] }) {
                 Unit
               </th>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-24 max-w-[180px]">
-                Meter
+                Meter ID
+              </th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-24 max-w-[180px]">
+                Meter Name
               </th>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider w-24">
                 Term
@@ -172,6 +175,11 @@ export default function PriceResults({ items }: { items: PricingItem[] }) {
                     {item.unitOfMeasure}
                   </div>
                 </td>
+                <td className="px-3 py-2.5 text-sm text-gray-500" title={item.meterId}>
+                  <div className="break-words max-w-[150px] font-mono text-xs">
+                    {item.meterId}
+                  </div>
+                </td>
                 <td className="px-3 py-2.5 text-sm text-gray-900" title={item.meterName}>
                   <div className="break-words max-w-[150px]">
                     {item.meterName}
@@ -210,7 +218,7 @@ export default function PriceResults({ items }: { items: PricingItem[] }) {
             
             {sortedAndFilteredItems.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-4 text-center text-gray-500 italic">
+                <td colSpan={9} className="px-3 py-4 text-center text-gray-500 italic">
                   No matching records found. Try adjusting your filter.
                 </td>
               </tr>

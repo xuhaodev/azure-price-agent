@@ -29,13 +29,9 @@ bun dev
 
 在开始使用前，请创建一个 `.env` 文件，并设置以下环境变量：
 ```
-GITHUB_TOKEN=你的GitHub令牌
-OPENAI_API_BASE_URL=OpenAI API基础URL
-MODEL_NAME=使用的模型名称
-AOAI_API_BASE_URL=Azure OpenAI服务端点
-AOAI_KEY=Azure OpenAI服务密钥
-OPENAI_API_VERSION=OpenAI API版本
-AZURE_DEPLOYMENT_NAME=Azure部署名称
+AZURE_OPENAI_ENDPOINT=Azure OpenAI 服务端点
+AZURE_OPENAI_API_KEY=Azure OpenAI 服务密钥
+AZURE_OPENAI_DEPLOYMENT_NAME=Azure 上部署的 gpt-5-codex 模型名称
 ```
 
 ## 项目架构
