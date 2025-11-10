@@ -56,9 +56,6 @@ export default function PriceResults({ items, height }: { items: PricingItem[], 
     });
   }, [items, sortField, sortDirection, searchTerm]);
 
-  // 早期返回放在 useMemo 之后
-  if (!items.length) return null;
-
   // 当有新内容追加时，自动滚动到底部显示最新内容
   useEffect(() => {
     if (items.length > previousItemsLengthRef.current && tableContainerRef.current) {
@@ -70,6 +67,9 @@ export default function PriceResults({ items, height }: { items: PricingItem[], 
     }
     previousItemsLengthRef.current = items.length;
   }, [items.length]);
+
+  // 早期返回放在所有 Hooks 之后
+  if (!items.length) return null;
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
