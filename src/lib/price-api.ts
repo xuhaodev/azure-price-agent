@@ -81,16 +81,17 @@ function getDeploymentName() {
 }
 
 function buildConversation(prompt: string): ResponseInput {
+    // 压缩区域映射为简短格式
+    const compactRegions = Object.entries(azureRegions)
+        .map(([code, name]) => `${code}:${name}`)
+        .join('|');
+    
+    // 压缩 VM 类型为简短格式
+    const compactVmTypes = azureVmSize
+        .map(vm => `${vm.family}[${vm.type}]:${vm.keywords}`)
+        .join('|');
+    
     return [
-        // {
-        //     role: "system",
-        //     content: [
-        //         {
-        //             type: "input_text",
-        //             text: "你是Azure价格查询助手，如果用户询问Azure产品价格相关问题，必须先调用odata_query，才能够回复。如果用户询问其他问题，你可以委婉地拒绝。"
-        //         }
-        //     ]
-        // },
         {
             role: "system",
             content: [
@@ -105,16 +106,7 @@ function buildConversation(prompt: string): ResponseInput {
             content: [
                 {
                     type: "input_text",
-                    text: `Azure region mapping: ${JSON.stringify(azureRegions)}`
-                }
-            ]
-        },
-        {
-            role: "user",
-            content: [
-                {
-                    type: "input_text",
-                    text: `Azure virtual machine size context: ${JSON.stringify(azureVmSize)}`
+                    text: `Region codes: ${compactRegions}\nVM families: ${compactVmTypes}`
                 }
             ]
         },
