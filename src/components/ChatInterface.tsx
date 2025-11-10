@@ -25,6 +25,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
   const [typingAnimation, setTypingAnimation] = useState(false);
   const [streamingResponse, setStreamingResponse] = useState('');
   const [executionSteps, setExecutionSteps] = useState<string[]>([]);
+  const [activityCompleted, setActivityCompleted] = useState(false); // 跟踪 Agent Activity 是否完成
   const [sessionResponseId, setSessionResponseId] = useState<string | null>(null); // 维护会话上下文
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -36,7 +37,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     setMessages([
       {
         role: 'assistant',
-        content: 'Welcome to Azure Price Agent! You can ask everything about Azure prices.',
+        content: 'Hello, great to connect. I’m here to answer any questions you have about Azure.',
         id: 'welcome-message'
       }
     ]);
@@ -90,8 +91,9 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     setTypingAnimation(true);
     setStreamingResponse('');
     setExecutionSteps([]);
+    setActivityCompleted(false); // 重置完成状态
 
-    // 注意：不再自动清空结果表，只有当收到新的 price_data 时才更新
+    // 注意:不再自动清空结果表,只有当收到新的 price_data 时才更新
 
     try {
       // 使用流式API，传递 previous_response_id 以维护对话上下文
@@ -260,7 +262,6 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
       
       setTypingAnimation(false);
       setStreamingResponse('');
-      setExecutionSteps([]);
       
       // Update error message - find the loading message by ID and replace it
       setMessages(prev => prev.map(msg => 
@@ -270,6 +271,11 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
       ));
     } finally {
       setLoading(false);
+      // 延迟设置完成状态,让用户能看到完整的步骤列表
+      // 使用 setTimeout 确保在状态更新后执行
+      setTimeout(() => {
+        setActivityCompleted(true);
+      }, 300);
     }
   };
 
@@ -277,29 +283,34 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     setMessages([
       {
         role: 'assistant',
-        content: 'Welcome to Azure Price Agent! You can ask everything about Azure prices.',
+        content: 'Hello, great to connect. I’m here to answer any questions you have about Azure',
         id: 'welcome-message'
       }
     ]);
     setInput('');
     setStreamingResponse('');
     setExecutionSteps([]);
+    setActivityCompleted(false); // 重置完成状态
     setSessionResponseId(null); // 重置会话上下文
     onResults({ items: [], filter: '', append: false });
   };
 
   return (
-    <div ref={chatContainerRef} className="flex flex-col bg-white rounded-xl shadow-lg overflow-hidden h-full">
+    <div ref={chatContainerRef} className="flex flex-col backdrop-blur-xl bg-white/95 rounded-xl shadow-2xl overflow-hidden h-full border border-white/20">
       {/* Header with Clear Chat button */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50 flex-shrink-0">
-        <h3 className="text-sm font-semibold text-gray-700">Chat</h3>
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-blue-200/50 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 backdrop-blur-sm flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 animate-pulse shadow-lg shadow-cyan-500/50"></div>
+          <h3 className="text-sm font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Chat</h3>
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gradient-to-r from-cyan-500/10 to-blue-500/10 text-cyan-700 border border-cyan-300/30 font-medium">Azure OpenAI GPT-5-Codex</span>
+        </div>
         <button
           onClick={handleClearChat}
           disabled={loading}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-600 hover:text-gray-900 hover:bg-white/80 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white/60 hover:bg-gradient-to-r hover:from-red-50 hover:to-pink-50 text-gray-600 hover:text-red-600 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed border border-gray-200/50 hover:border-red-300/50 shadow-sm hover:shadow-md transform hover:scale-105 backdrop-blur-sm"
           title="Clear chat history"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
             <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
           </svg>
           Clear
@@ -326,10 +337,10 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
               }}
             >
               <div 
-                className={`p-3.5 rounded-2xl shadow-sm ${
+                className={`p-3.5 rounded-2xl shadow-lg ${
                   msg.role === 'user' 
-                    ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white' 
-                    : 'bg-gray-100 text-gray-800 border border-gray-200/50'
+                    ? 'bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600 text-white shadow-blue-500/50' 
+                    : 'bg-white/90 text-gray-800 border border-gray-200/50 backdrop-blur-sm'
                 }`}
               >
                 {msg.role === 'user' ? (
@@ -339,10 +350,10 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                   // Assistant messages rendered as Markdown
                   <div className={`markdown-content ${typingAnimation && msg.content === 'Searching...' ? 'animate-pulse' : ''}`}>
                     {typingAnimation && msg.content === 'Searching...' ? (
-                      <div className="flex items-center space-x-1 h-6">
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                      <div className="flex items-center space-x-1.5 h-6">
+                        <div className="w-2.5 h-2.5 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full animate-bounce shadow-md shadow-cyan-500/50" style={{ animationDelay: '0ms' }}></div>
+                        <div className="w-2.5 h-2.5 bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full animate-bounce shadow-md shadow-blue-500/50" style={{ animationDelay: '150ms' }}></div>
+                        <div className="w-2.5 h-2.5 bg-gradient-to-r from-indigo-400 to-purple-500 rounded-full animate-bounce shadow-md shadow-indigo-500/50" style={{ animationDelay: '300ms' }}></div>
                       </div>
                     ) : (
                       <ReactMarkdown 
@@ -370,11 +381,21 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
               </div>
               
               <div 
-                className={`text-xs mt-1 px-1 ${
-                  msg.role === 'user' ? 'text-right text-gray-600' : 'text-gray-500'
+                className={`text-xs mt-1.5 px-1 flex items-center gap-1.5 ${
+                  msg.role === 'user' ? 'justify-end' : 'justify-start'
                 }`}
               >
-                {msg.role === 'user' ? 'You' : 'Azure Price Agent'}
+                {msg.role === 'user' ? (
+                  <>
+                    <span className="text-gray-500 font-medium">You</span>
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-1.5 h-1.5 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 animate-pulse"></div>
+                    <span className="text-gray-500 font-medium bg-gradient-to-r from-gray-600 to-gray-500 bg-clip-text text-transparent">Azure Price Agent</span>
+                  </>
+                )}
               </div>
               
               {/* Message tail */}
@@ -393,11 +414,16 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
         {executionSteps.length > 0 && (
           <div className="mb-4 flex justify-start">
             <div className="relative max-w-[85%] mr-auto w-full" style={{ maxWidth: '85%' }}>
-              <div className="p-2.5 rounded-xl shadow-sm bg-blue-50 border border-blue-200">
-                <div className="text-xs font-semibold text-blue-700 mb-1.5">🔄 Agent Activity</div>
+              <div className="p-2.5 rounded-xl shadow-lg bg-gradient-to-br from-cyan-50/90 to-blue-50/90 border border-cyan-300/50 backdrop-blur-sm">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 animate-pulse"></div>
+                  <div className="text-xs font-bold bg-gradient-to-r from-cyan-600 to-blue-700 bg-clip-text text-transparent">Agent Activity</div>
+                  <div className="flex-1"></div>
+                  <div className="w-1 h-1 rounded-full bg-cyan-400 animate-ping"></div>
+                </div>
                 <div 
                   ref={activityScrollRef}
-                  className="agent-activity-scroll overflow-y-auto space-y-1"
+                  className="agent-activity-scroll overflow-y-auto overflow-x-hidden space-y-1"
                   style={{ 
                     maxHeight: 'calc(3 * 1.5rem)', // 3行高度
                   }}
@@ -405,23 +431,37 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                   {executionSteps.map((step, index) => (
                     <div 
                       key={index} 
-                      className="flex items-start gap-2 text-xs text-gray-700 animate-fadeIn leading-6"
+                      className="flex items-start gap-2 text-xs text-gray-700 animate-fadeIn leading-6 hover:bg-white/40 rounded px-1 -mx-1 transition-all"
                       style={{
                         animationDelay: `${index * 0.05}s`,
                         animationFillMode: 'backwards'
                       }}
                     >
-                      <span className="text-blue-500 mt-0.5 flex-shrink-0">
+                      <span className={`mt-0.5 flex-shrink-0 font-bold ${
+                        index === executionSteps.length - 1 
+                          ? 'text-cyan-500 animate-pulse' 
+                          : 'text-blue-500'
+                      }`}>
                         {index === executionSteps.length - 1 ? '▸' : '✓'}
                       </span>
-                      <span className="flex-1">{step}</span>
+                      <span className="flex-1 font-medium">{step}</span>
                     </div>
                   ))}
                 </div>
               </div>
               
-              <div className="text-xs mt-1 px-1 text-gray-500">
-                Agent Activity
+              <div className="flex items-center gap-1.5 text-xs mt-1.5 px-1">
+                {activityCompleted ? (
+                  <>
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div>
+                    <span className="text-gray-500 font-medium">Done</span>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></div>
+                    <span className="text-gray-500 font-medium">Processing</span>
+                  </>
+                )}
               </div>
               
               {/* Message tail */}
@@ -434,7 +474,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
         {streamingResponse && (
           <div className="mb-4 flex justify-start">
             <div className="relative max-w-[85%] mr-auto w-full" style={{ maxWidth: '85%' }}>
-              <div className="p-3.5 rounded-2xl shadow-sm bg-gray-100 text-gray-800 border border-gray-200/50">
+              <div className="p-3.5 rounded-2xl shadow-lg bg-white/90 text-gray-800 border border-gray-200/50 backdrop-blur-sm">
                 <div className="markdown-content">
                   <ReactMarkdown 
                     remarkPlugins={[remarkGfm]}
@@ -458,12 +498,14 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                 </div>
               </div>
               
-              <div className="text-xs mt-1 px-1 text-gray-500">
-                Azure Price Agent
+              <div className="flex items-center gap-1.5 text-xs mt-1.5 px-1">
+                <div className="w-1.5 h-1.5 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 animate-pulse"></div>
+                <span className="text-gray-500 font-medium">AI Assistant</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-600 border border-cyan-300/30">Typing...</span>
               </div>
               
               {/* Message tail */}
-              <div className="absolute w-2 h-2 left-0 -ml-1 bg-gray-100 bottom-[16px] transform rotate-45"></div>
+              <div className="absolute w-2 h-2 left-0 -ml-1 bg-white/90 bottom-[20px] transform rotate-45 border-l border-b border-gray-200/50"></div>
             </div>
           </div>
         )}
@@ -474,7 +516,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
       {/* Input area */}
       <form 
         onSubmit={handleSubmit} 
-        className="border-t border-gray-200 p-3 md:p-4 bg-gradient-to-r from-gray-50 to-gray-100"
+        className="border-t border-blue-200/30 p-3 md:p-4 bg-gradient-to-r from-blue-50/50 to-indigo-50/50 backdrop-blur-sm"
       >
         <div className="flex gap-2 items-center">
           <div className="relative flex-1">
@@ -483,8 +525,8 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Enter your pricing query..."
-              className="w-full p-3 pr-10 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition-all shadow-sm text-sm md:text-base"
+              placeholder="💬 Ask me anything about Azure pricing..."
+              className="w-full p-3 pr-10 border border-gray-300/50 rounded-xl focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all shadow-lg text-sm md:text-base bg-white/90 backdrop-blur-sm placeholder:text-gray-400"
               disabled={loading}
               spellCheck={false}
               autoFocus
@@ -504,14 +546,15 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
           <button 
             type="submit"
             disabled={loading || !input.trim()}
-            className="px-5 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl hover:from-blue-600 hover:to-indigo-700 disabled:from-blue-300 disabled:to-indigo-400 disabled:cursor-not-allowed transition-all shadow-sm flex items-center"
+            className="px-5 py-3 bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-600 text-white rounded-xl hover:from-cyan-600 hover:via-blue-600 hover:to-indigo-700 disabled:from-blue-300 disabled:to-indigo-400 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-cyan-500/50 transform hover:scale-105 active:scale-95 flex items-center group"
           >
             {loading ? (
               <span className="flex items-center gap-2">
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <span className="text-xs font-medium">Processing...</span>
               </span>
             ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 group-hover:translate-x-0.5 transition-transform">
                 <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
               </svg>
             )}
@@ -524,7 +567,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
             type="button" 
             onClick={() => setInput("Which US Azure region offers the lowest price for the Standard D8s v4 VM?")}
             disabled={loading}
-            className="text-xs bg-white py-1 px-2 rounded-full border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+            className="text-xs bg-white/90 backdrop-blur-sm py-1 px-2 rounded-full border border-cyan-200/50 text-gray-600 hover:bg-gradient-to-r hover:from-cyan-50 hover:to-blue-50 hover:border-cyan-300 transition-all shadow-sm hover:shadow-md transform hover:scale-105"
           >
             find cheapest D8s v4 in US
           </button>
@@ -532,7 +575,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
             type="button" 
             onClick={() => setInput("What is meter id for Azure managed redis M50 in West US 2?")}
             disabled={loading}
-            className="text-xs bg-white py-1 px-2 rounded-full border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+            className="text-xs bg-white/90 backdrop-blur-sm py-1 px-2 rounded-full border border-cyan-200/50 text-gray-600 hover:bg-gradient-to-r hover:from-cyan-50 hover:to-blue-50 hover:border-cyan-300 transition-all shadow-sm hover:shadow-md transform hover:scale-105"
           >
             meter id of AMR M50 in West US 2
           </button>

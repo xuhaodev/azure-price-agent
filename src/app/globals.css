@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --background: #f8fafc;
-  --foreground: #171717;
+  --background: #0f172a;
+  --foreground: #f1f5f9;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -17,52 +17,97 @@
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+/* 背景动画 */
+@keyframes blob {
+  0% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
+  100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+}
+
+.animate-blob {
+  animation: blob 7s infinite;
+}
+
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+
+.animation-delay-4000 {
+  animation-delay: 4s;
 }
 
 /* 全局滚动条样式 */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: rgba(241, 245, 249, 0.1);
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
+  background: linear-gradient(180deg, #06b6d4, #3b82f6);
   border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
+  background: linear-gradient(180deg, #0891b2, #2563eb);
+  background-clip: padding-box;
 }
 
-/* Agent Activity 滚动条样式 */
+/* Agent Activity 滚动条样式 - 仅在需要时显示 */
+.agent-activity-scroll {
+  overflow-y: auto; /* 只显示垂直滚动条 */
+  overflow-x: hidden; /* 完全隐藏水平滚动条 */
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: transparent transparent; /* Firefox - 默认透明 */
+}
+
+/* 垂直滚动条样式 */
 .agent-activity-scroll::-webkit-scrollbar {
   width: 4px;
+  height: 0; /* 隐藏水平滚动条 */
 }
 
 .agent-activity-scroll::-webkit-scrollbar-track {
-  background: #dbeafe;
+  background: transparent;
   border-radius: 4px;
 }
 
+/* 默认状态下滚动条透明(隐藏) */
 .agent-activity-scroll::-webkit-scrollbar-thumb {
-  background: #93c5fd;
+  background: transparent;
   border-radius: 4px;
 }
 
-.agent-activity-scroll::-webkit-scrollbar-thumb:hover {
-  background: #60a5fa;
+/* 鼠标悬停时显示垂直滚动条 */
+.agent-activity-scroll:hover {
+  scrollbar-color: #06b6d4 transparent; /* Firefox - hover时显示 */
 }
 
-/* Firefox 滚动条样式 */
-.agent-activity-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: #93c5fd #dbeafe;
+.agent-activity-scroll:hover::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #06b6d4, #3b82f6);
+}
+
+.agent-activity-scroll::-webkit-scrollbar-thumb:active {
+  background: linear-gradient(180deg, #0891b2, #2563eb);
 }
 
 @layer base {
@@ -77,38 +122,38 @@ body {
 
 @layer components {
   .btn-primary {
-    @apply px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg 
-           hover:from-blue-700 hover:to-blue-800 
-           disabled:from-blue-300 disabled:to-blue-400 
-           transition-all transform hover:scale-105 active:scale-95;
+    @apply px-4 py-2 bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-600 text-white rounded-lg 
+           hover:from-cyan-600 hover:via-blue-600 hover:to-indigo-700 
+           disabled:from-blue-300 disabled:to-indigo-400 
+           transition-all transform hover:scale-105 active:scale-95 shadow-lg hover:shadow-cyan-500/50;
   }
 
   .card {
-    @apply bg-white rounded-xl shadow-lg p-6;
+    @apply backdrop-blur-xl bg-white/95 rounded-xl shadow-2xl p-6 border border-white/20;
   }
 
   .input-primary {
-    @apply p-4 border rounded-lg shadow-sm 
-           focus:ring-2 focus:ring-blue-500 focus:border-blue-500 
-           text-gray-900 bg-gray-50 hover:bg-white transition-colors;
+    @apply p-4 border border-gray-300/50 rounded-lg shadow-lg 
+           focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 
+           text-gray-900 bg-white/90 backdrop-blur-sm hover:bg-white transition-all;
   }
   
   /* 聊天气泡样式 */
   .chat-bubble-user {
-    @apply bg-blue-600 text-white rounded-lg rounded-tr-none p-3 ml-auto max-w-3xl;
+    @apply bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600 text-white rounded-lg rounded-tr-none p-3 ml-auto max-w-3xl shadow-lg shadow-blue-500/50;
   }
   
   .chat-bubble-assistant {
-    @apply bg-gray-100 text-gray-800 rounded-lg rounded-tl-none p-3 mr-auto max-w-3xl;
+    @apply bg-white/90 text-gray-800 rounded-lg rounded-tl-none p-3 mr-auto max-w-3xl backdrop-blur-sm border border-gray-200/50;
   }
   
   /* 表格样式增强 */
   .price-table {
-    @apply min-w-full divide-y divide-gray-200;
+    @apply min-w-full divide-y divide-gray-200/50;
   }
   
   .price-table th {
-    @apply px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider;
+    @apply px-6 py-3 bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 backdrop-blur-sm text-left text-xs font-medium text-gray-700 uppercase tracking-wider;
   }
   
   .price-table td {
@@ -116,7 +161,7 @@ body {
   }
   
   .price-table tbody tr {
-    @apply hover:bg-blue-50 transition-colors;
+    @apply hover:bg-gradient-to-r hover:from-cyan-50 hover:to-blue-50 transition-all hover:shadow-md;
   }
   
   /* Markdown 样式 */
@@ -124,19 +169,19 @@ body {
     @apply text-sm;
     
     h1 {
-      @apply text-xl font-bold my-4;
+      @apply text-xl font-bold my-4 bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent;
     }
     
     h2 {
-      @apply text-lg font-bold my-3;
+      @apply text-lg font-bold my-3 bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent;
     }
     
     h3 {
-      @apply text-base font-bold my-2;
+      @apply text-base font-bold my-2 text-gray-800;
     }
     
     p {
-      @apply my-2;
+      @apply my-2 leading-relaxed;
     }
     
     ul, ol {
@@ -156,19 +201,19 @@ body {
     }
     
     a {
-      @apply text-blue-600 hover:underline;
+      @apply text-cyan-600 hover:text-blue-600 hover:underline transition-colors;
     }
     
     blockquote {
-      @apply border-l-4 border-gray-300 pl-3 italic my-3;
+      @apply border-l-4 border-cyan-400 pl-3 italic my-3 bg-cyan-50/50 py-2 rounded-r;
     }
     
     pre {
-      @apply bg-gray-800 text-gray-100 p-3 rounded my-3 overflow-x-auto;
+      @apply bg-gradient-to-br from-gray-900 to-slate-800 text-gray-100 p-3 rounded-lg my-3 overflow-x-auto shadow-lg;
     }
     
     code {
-      @apply bg-gray-200 px-1 py-0.5 rounded text-sm font-mono;
+      @apply bg-gray-200/70 px-1 py-0.5 rounded text-sm font-mono;
     }
     
     pre code {
@@ -176,23 +221,88 @@ body {
     }
     
     table {
-      @apply w-full border-collapse my-3;
+      @apply w-full border-collapse my-3 shadow-md rounded-lg overflow-hidden;
     }
     
     th, td {
-      @apply border border-gray-300 p-2;
+      @apply border border-gray-300/50 p-2;
     }
     
     th {
-      @apply bg-gray-100;
+      @apply bg-gradient-to-r from-blue-50 to-indigo-50;
     }
     
     hr {
-      @apply my-4 border-t border-gray-300;
+      @apply my-4 border-t border-gray-300/50;
     }
     
     img {
-      @apply max-w-full my-3 rounded;
+      @apply max-w-full my-3 rounded-lg shadow-md;
     }
   }
+}
+
+/* 淡入动画 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+/* 脉冲动画增强 */
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* 悬浮效果动画 */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* 闪烁效果 */
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 3s infinite;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    rgba(255, 255, 255, 0.3) 50%,
+    transparent 100%
+  );
+  background-size: 1000px 100%;
 }

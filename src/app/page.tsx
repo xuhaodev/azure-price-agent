@@ -46,37 +46,44 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 py-3 px-4 md:py-4">
-      <div className="w-full mx-auto">
-        {/* 紧凑化的标题区域 */}
-        <div className="relative bg-white rounded-2xl shadow-lg overflow-hidden mb-4">
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-600/5 to-purple-600/5 z-0"></div>
+    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 py-3 px-4 md:py-4 relative overflow-hidden">
+      {/* 背景动画效果 */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-0 -left-4 w-96 h-96 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>
+        <div className="absolute top-0 -right-4 w-96 h-96 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
+        <div className="absolute -bottom-8 left-20 w-96 h-96 bg-indigo-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-4000"></div>
+      </div>
+      
+      <div className="w-full mx-auto relative z-10">
+        {/* 紧凑化的标题区域 - 玻璃态设计 */}
+        <div className="relative backdrop-blur-xl bg-white/10 rounded-2xl shadow-2xl overflow-hidden mb-4 border border-white/20">
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-pink-500/10 z-0"></div>
           
           <div className="relative z-10 p-3 md:p-4">
             {/* 更紧凑的顶部布局，结合标题和图标 */}
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-3">
                 <div className="flex -space-x-1">
-                  <div className="rounded-full bg-gradient-to-r from-blue-500 to-purple-600 p-0.5 z-10">
+                  <div className="rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 p-0.5 z-10 shadow-lg shadow-cyan-500/50 animate-pulse-glow">
                     <div className="bg-white rounded-full p-1">
                       <Image src="/globe.svg" alt="Azure" width={18} height={18} className="w-4 h-4" />
                     </div>
                   </div>
-                  <div className="rounded-full bg-gradient-to-r from-purple-500 to-blue-600 p-0.5 z-0">
+                  <div className="rounded-full bg-gradient-to-r from-purple-400 to-indigo-500 p-0.5 z-0 shadow-lg shadow-purple-500/50 animate-pulse-glow animation-delay-2000">
                     <div className="bg-white rounded-full p-1">
                       <Image src="/window.svg" alt="Azure" width={18} height={18} className="w-4 h-4" />
                     </div>
                   </div>
                 </div>
-                <h1 className="text-xl md:text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-700">
+                <h1 className="text-xl md:text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 via-blue-400 to-purple-400 drop-shadow-lg">
                   Azure Price Agent
                 </h1>
               </div>
               
               {/* 更紧凑的链接区 */}
-              <div className="flex items-center text-xs gap-3">
+              <div className="flex items-center text-xs gap-3 text-gray-200">
                 <a href="https://learn.microsoft.com/en-us/rest/api/cost-management/retail-prices/azure-retail-prices" 
-                   className="flex items-center hover:text-blue-600 transition-colors" 
+                   className="flex items-center hover:text-cyan-300 transition-all hover:scale-110" 
                    target="_blank" 
                    rel="noopener noreferrer">
                   <svg className="w-3 h-3 mr-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -87,7 +94,7 @@ export default function Home() {
                 </a>
                 
                 <a href="https://github.com/xuhaoruins/azurepricesearch" 
-                   className="flex items-center hover:text-blue-600 transition-colors"
+                   className="flex items-center hover:text-cyan-300 transition-all hover:scale-110"
                    target="_blank" 
                    rel="noopener noreferrer">
                   <svg className="w-3 h-3 mr-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -96,10 +103,10 @@ export default function Home() {
                   GitHub
                 </a>
                 
-                <span className="text-gray-300">|</span>
+                <span className="text-gray-400">|</span>
                 
                 <a href="mailto:haxu@microsoft.com" 
-                   className="flex items-center hover:text-blue-600 transition-colors"
+                   className="flex items-center hover:text-cyan-300 transition-all hover:scale-110"
                    title="Business Contact">
                   <svg className="w-3 h-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
@@ -108,7 +115,7 @@ export default function Home() {
                 </a>
                 
                 <a href="mailto:xuhaoruins@hotmail.com" 
-                   className="flex items-center hover:text-purple-600 transition-colors"
+                   className="flex items-center hover:text-purple-300 transition-all hover:scale-110"
                    title="Personal Contact">
                   <svg className="w-3 h-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="12" cy="12" r="4"></circle>
@@ -119,7 +126,7 @@ export default function Home() {
             </div>
             
             {/* 短小介绍线 */}
-            <p className="text-xs text-gray-600 mb-2">
+            <p className="text-xs text-gray-300 mb-2">
               Search prices, meter IDs, compare options, and more — powered by Agentic AI with Azure OpenAI Response API & GPT-5-codex
             </p>
           </div>
