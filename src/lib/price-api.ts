@@ -211,16 +211,12 @@ async function executePricingWorkflow(
         ...(previousResponseId ? { previous_response_id: previousResponseId } : {})
     });
 
-    let iterationCount = 0;
-
     while (true) {
         const toolCalls = extractUnprocessedToolCalls(response, processedCalls);
 
         if (toolCalls.length === 0) {
             break;
         }
-
-        iterationCount++;
 
         // Notify: Found tool calls
         if (hooks.onStepUpdate && toolCalls.length > 0) {
