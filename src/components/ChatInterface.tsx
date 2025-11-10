@@ -25,6 +25,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
   const [typingAnimation, setTypingAnimation] = useState(false);
   const [streamingResponse, setStreamingResponse] = useState('');
   const [executionSteps, setExecutionSteps] = useState<string[]>([]);
+  const [visibleStepsCount, setVisibleStepsCount] = useState(0); // 控制可见步骤数量
   const [activityCompleted, setActivityCompleted] = useState(false); // 跟踪 Agent Activity 是否完成
   const [sessionResponseId, setSessionResponseId] = useState<string | null>(null); // 维护会话上下文
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -53,12 +54,27 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     }
   }, [messages, streamingResponse, executionSteps]);
 
-  // 当 executionSteps 更新时，自动滚动 Agent Activity 到最新内容
+  // 当可见步骤更新时，自动滚动 Agent Activity 到最新内容
   useEffect(() => {
-    if (activityScrollRef.current) {
-      activityScrollRef.current.scrollTop = activityScrollRef.current.scrollHeight;
+    if (activityScrollRef.current && visibleStepsCount > 0) {
+      // 使用 smooth 滚动，创造更优雅的效果
+      activityScrollRef.current.scrollTo({
+        top: activityScrollRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
     }
-  }, [executionSteps]);
+  }, [visibleStepsCount]);
+
+  // 优雅地逐步显示执行步骤
+  useEffect(() => {
+    if (executionSteps.length > visibleStepsCount) {
+      const timer = setTimeout(() => {
+        setVisibleStepsCount(prev => prev + 1);
+      }, 200); // 每个步骤延迟200ms显示，快速而优雅
+      
+      return () => clearTimeout(timer);
+    }
+  }, [executionSteps, visibleStepsCount]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,6 +107,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     setTypingAnimation(true);
     setStreamingResponse('');
     setExecutionSteps([]);
+    setVisibleStepsCount(0); // 重置可见步骤计数
     setActivityCompleted(false); // 重置完成状态
 
     // 注意:不再自动清空结果表,只有当收到新的 price_data 时才更新
@@ -290,6 +307,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     setInput('');
     setStreamingResponse('');
     setExecutionSteps([]);
+    setVisibleStepsCount(0); // 重置可见步骤计数
     setActivityCompleted(false); // 重置完成状态
     setSessionResponseId(null); // 重置会话上下文
     onResults({ items: [], filter: '', append: false });
@@ -302,7 +320,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 animate-pulse shadow-lg shadow-cyan-500/50"></div>
           <h3 className="text-sm font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Chat</h3>
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gradient-to-r from-cyan-500/10 to-blue-500/10 text-cyan-700 border border-cyan-300/30 font-medium">Azure OpenAI GPT-5-Codex</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gradient-to-r from-cyan-500/10 to-blue-500/10 text-cyan-700 border border-cyan-300/30 font-medium">GPT-5</span>
         </div>
         <button
           onClick={handleClearChat}
@@ -320,195 +338,218 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
       {/* Message display area */}
       <div className="flex-1 p-4 overflow-y-auto">
         {messages.map((msg, index) => (
-          <div 
-            key={msg.id || index} 
-            className={`mb-4 ${msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'}`}
-            data-role={msg.role}
-          >
-            <div 
-              className={`relative max-w-[85%] animate-fadeIn ${
-                msg.role === 'user' 
-                  ? 'ml-auto' 
-                  : 'mr-auto'
-              }`}
-              style={{
-                animationDelay: `${index * 0.1}s`,
-                animationFillMode: 'backwards'
-              }}
-            >
-              <div 
-                className={`p-3.5 rounded-2xl shadow-lg ${
-                  msg.role === 'user' 
-                    ? 'bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600 text-white shadow-blue-500/50' 
-                    : 'bg-white/90 text-gray-800 border border-gray-200/50 backdrop-blur-sm'
-                }`}
-              >
-                {msg.role === 'user' ? (
-                  // User messages displayed as plain text
-                  <div className="whitespace-pre-wrap text-sm md:text-base">{msg.content}</div>
-                ) : (
-                  // Assistant messages rendered as Markdown
-                  <div className={`markdown-content ${typingAnimation && msg.content === 'Searching...' ? 'animate-pulse' : ''}`}>
-                    {typingAnimation && msg.content === 'Searching...' ? (
-                      <div className="flex items-center space-x-1.5 h-6">
-                        <div className="w-2.5 h-2.5 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full animate-bounce shadow-md shadow-cyan-500/50" style={{ animationDelay: '0ms' }}></div>
-                        <div className="w-2.5 h-2.5 bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full animate-bounce shadow-md shadow-blue-500/50" style={{ animationDelay: '150ms' }}></div>
-                        <div className="w-2.5 h-2.5 bg-gradient-to-r from-indigo-400 to-purple-500 rounded-full animate-bounce shadow-md shadow-indigo-500/50" style={{ animationDelay: '300ms' }}></div>
-                      </div>
-                    ) : (
-                      <ReactMarkdown 
-                        remarkPlugins={[remarkGfm]}
-                        skipHtml={true}
-                        components={{
-                          pre: (props) => <pre className="bg-gray-800 text-white p-3 rounded-md overflow-auto my-2 text-sm" {...props} />,
-                          code: (props) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono" {...props} />,
-                          p: (props) => <p className="text-sm md:text-base mb-2 last:mb-0" {...props} />,
-                          table: (props) => (
-                            <div className="overflow-x-auto my-2">
-                              <table className="min-w-full text-xs border-collapse border border-gray-300" {...props} />
-                            </div>
-                          ),
-                          thead: (props) => <thead className="bg-gray-200" {...props} />,
-                          th: (props) => <th className="border border-gray-300 px-2 py-1 text-left font-semibold" {...props} />,
-                          td: (props) => <td className="border border-gray-300 px-2 py-1" {...props} />
-                        }}
-                      >
-                        {msg.content}
-                      </ReactMarkdown>
-                    )}
-                  </div>
-                )}
-              </div>
-              
-              <div 
-                className={`text-xs mt-1.5 px-1 flex items-center gap-1.5 ${
-                  msg.role === 'user' ? 'justify-end' : 'justify-start'
-                }`}
-              >
-                {msg.role === 'user' ? (
-                  <>
-                    <span className="text-gray-500 font-medium">You</span>
-                    <div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div>
-                  </>
-                ) : (
-                  <>
-                    <div className="w-1.5 h-1.5 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 animate-pulse"></div>
-                    <span className="text-gray-500 font-medium bg-gradient-to-r from-gray-600 to-gray-500 bg-clip-text text-transparent">Azure Price Agent</span>
-                  </>
-                )}
-              </div>
-              
-              {/* Message tail */}
-              <div
-                className={`absolute w-2 h-2 ${
-                  msg.role === 'user'
-                    ? 'right-0 -mr-1 bg-blue-500'
-                    : 'left-0 -ml-1 bg-gray-100'
-                } bottom-[16px] transform rotate-45`}
-              ></div>
-            </div>
-          </div>
-        ))}
-        
-        {/* Agent Activity - 优先显示在最上方，固定3行高度 */}
-        {executionSteps.length > 0 && (
-          <div className="mb-4 flex justify-start">
-            <div className="relative max-w-[85%] mr-auto w-full" style={{ maxWidth: '85%' }}>
-              <div className="p-2.5 rounded-xl shadow-lg bg-gradient-to-br from-cyan-50/90 to-blue-50/90 border border-cyan-300/50 backdrop-blur-sm">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <div className="w-1.5 h-1.5 rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 animate-pulse"></div>
-                  <div className="text-xs font-bold bg-gradient-to-r from-cyan-600 to-blue-700 bg-clip-text text-transparent">Agent Activity</div>
-                  <div className="flex-1"></div>
-                  <div className="w-1 h-1 rounded-full bg-cyan-400 animate-ping"></div>
-                </div>
+          <div key={msg.id || index}>
+            {/* User messages - always display normally */}
+            {msg.role === 'user' && (
+              <div className="mb-4 flex justify-end" data-role={msg.role}>
                 <div 
-                  ref={activityScrollRef}
-                  className="agent-activity-scroll overflow-y-auto overflow-x-hidden space-y-1"
-                  style={{ 
-                    maxHeight: 'calc(3 * 1.5rem)', // 3行高度
+                  className="relative max-w-[85%] ml-auto animate-fadeIn"
+                  style={{
+                    animationDelay: `${index * 0.1}s`,
+                    animationFillMode: 'backwards'
                   }}
                 >
-                  {executionSteps.map((step, index) => (
+                  <div className="p-3.5 rounded-2xl shadow-lg bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600 text-white shadow-blue-500/50">
+                    <div className="whitespace-pre-wrap text-sm md:text-base">{msg.content}</div>
+                  </div>
+                  
+                  <div className="text-xs mt-1.5 px-1 flex items-center gap-1.5 justify-end">
+                    <span className="text-gray-500 font-medium">You</span>
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div>
+                  </div>
+                  
+                  <div className="absolute w-2 h-2 right-0 -mr-1 bg-blue-500 bottom-[16px] transform rotate-45"></div>
+                </div>
+              </div>
+            )}
+
+            {/* Assistant messages - show unified card when processing/has activity, otherwise normal display */}
+            {msg.role === 'assistant' && (
+              <>
+                {/* Show unified activity + response card for the last message when there are execution steps or streaming */}
+                {index === messages.length - 1 && (executionSteps.length > 0 || streamingResponse) ? (
+                  <div className="mb-4 flex justify-start">
+                    <div className="relative max-w-[85%] mr-auto w-full" style={{ maxWidth: '85%' }}>
+                      {/* Unified card with gradient background */}
+                      <div className="rounded-2xl shadow-xl bg-gradient-to-br from-white/95 via-blue-50/30 to-cyan-50/40 border border-blue-200/40 backdrop-blur-sm overflow-hidden">
+                        
+                        {/* Agent Activity Section - fixed 3 lines with scroll */}
+                        {executionSteps.length > 0 && (
+                          <div className={`transition-all duration-300 ${streamingResponse || (activityCompleted && msg.content !== 'Searching...') ? 'border-b border-blue-200/30' : ''}`}>
+                            <div className="p-3">
+                              {/* Activity Header */}
+                              <div className="flex items-center gap-2 mb-2">
+                                <div className={`w-2 h-2 rounded-full ${activityCompleted ? 'bg-green-500' : 'bg-gradient-to-r from-cyan-500 to-blue-500 animate-pulse'}`}></div>
+                                <div className="text-xs font-bold bg-gradient-to-r from-cyan-600 to-blue-700 bg-clip-text text-transparent">
+                                  {activityCompleted ? 'Task Completed' : 'Agent Activity'}
+                                </div>
+                                <div className="flex-1"></div>
+                                {!activityCompleted && <div className="w-1 h-1 rounded-full bg-cyan-400 animate-ping"></div>}
+                                {activityCompleted && (
+                                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-green-500">
+                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
+                                  </svg>
+                                )}
+                              </div>
+                              
+                              {/* Activity Steps - strictly 3 lines max with scroll */}
+                              <div 
+                                ref={activityScrollRef}
+                                className="agent-activity-scroll overflow-y-auto overflow-x-hidden space-y-0.5"
+                                style={{ 
+                                  maxHeight: 'calc(3 * 1.75rem)', // Exactly 3 lines
+                                }}
+                              >
+                                {executionSteps.slice(0, visibleStepsCount).map((step, idx) => (
+                                  <div 
+                                    key={idx} 
+                                    className="flex items-start gap-2 text-xs text-gray-700 animate-slideInFromTop leading-[1.75rem] hover:bg-white/50 rounded px-2 py-0.5 -mx-2 transition-all"
+                                  >
+                                    <span className={`flex-shrink-0 font-bold text-[10px] ${
+                                      idx === visibleStepsCount - 1 && idx === executionSteps.length - 1 && !activityCompleted
+                                        ? 'text-cyan-500 animate-pulse' 
+                                        : idx === visibleStepsCount - 1 && !activityCompleted
+                                        ? 'text-cyan-500 animate-pulse'
+                                        : 'text-green-500'
+                                    }`}>
+                                      {idx === visibleStepsCount - 1 && !activityCompleted ? '▸' : '✓'}
+                                    </span>
+                                    <span className="flex-1 font-medium">{step}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Processing Animation - show below activity while processing */}
+                        {executionSteps.length > 0 && !streamingResponse && msg.content === 'Searching...' && (
+                          <div className="px-3.5 py-3 border-t border-blue-200/30">
+                            <div className="flex justify-center items-center">
+                              <div className="flex space-x-1.5">
+                                <div className="w-2 h-2 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                                <div className="w-2 h-2 bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                                <div className="w-2 h-2 bg-gradient-to-r from-indigo-400 to-purple-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Final Response Section - only show when streaming or completed */}
+                        {(streamingResponse || (activityCompleted && msg.content !== 'Searching...')) && (
+                          <div className="p-3.5 border-t border-blue-200/30">
+                            {/* Content */}
+                            <div className="markdown-content">
+                              <ReactMarkdown 
+                                remarkPlugins={[remarkGfm]}
+                                skipHtml={true}
+                                components={{
+                                  pre: (props) => <pre className="bg-gray-800 text-white p-3 rounded-md overflow-auto my-2 text-sm" {...props} />,
+                                  code: (props) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono" {...props} />,
+                                  p: (props) => <p className="text-sm md:text-base mb-2 last:mb-0" {...props} />,
+                                  table: (props) => (
+                                    <div className="overflow-x-auto my-2">
+                                      <table className="min-w-full text-xs border-collapse border border-gray-300" {...props} />
+                                    </div>
+                                  ),
+                                  thead: (props) => <thead className="bg-gray-200" {...props} />,
+                                  th: (props) => <th className="border border-gray-300 px-2 py-1 text-left font-semibold" {...props} />,
+                                  td: (props) => <td className="border border-gray-300 px-2 py-1" {...props} />
+                                }}
+                              >
+                                {streamingResponse || msg.content}
+                              </ReactMarkdown>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Status indicator below card */}
+                      <div className="flex items-center gap-1.5 text-xs mt-1.5 px-1">
+                        <div className={`w-1.5 h-1.5 rounded-full ${
+                          activityCompleted && !streamingResponse && msg.content !== 'Searching...'
+                            ? 'bg-green-500'
+                            : 'bg-gradient-to-r from-cyan-400 to-blue-500 animate-pulse'
+                        }`}></div>
+                        <span className="text-gray-500 font-medium bg-gradient-to-r from-gray-600 to-gray-500 bg-clip-text text-transparent">
+                          Azure Prices Agent
+                        </span>
+                        {!activityCompleted && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 border border-blue-300/30 animate-pulse">
+                            Processing...
+                          </span>
+                        )}
+                        {activityCompleted && (streamingResponse || msg.content === 'Searching...') && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-600 border border-cyan-300/30 animate-pulse">
+                            Typing...
+                          </span>
+                        )}
+                        {activityCompleted && !streamingResponse && msg.content !== 'Searching...' && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-600 border border-green-300/30">
+                            Completed
+                          </span>
+                        )}
+                      </div>
+                      
+                      {/* Message tail */}
+                      <div className="absolute w-2 h-2 left-0 -ml-1 bg-white/95 bottom-[20px] transform rotate-45 border-l border-b border-blue-200/40"></div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Normal assistant message display (for non-active messages or when no activity) */
+                  <div className="mb-4 flex justify-start" data-role={msg.role}>
                     <div 
-                      key={index} 
-                      className="flex items-start gap-2 text-xs text-gray-700 animate-fadeIn leading-6 hover:bg-white/40 rounded px-1 -mx-1 transition-all"
+                      className="relative max-w-[85%] mr-auto animate-fadeIn"
                       style={{
-                        animationDelay: `${index * 0.05}s`,
+                        animationDelay: `${index * 0.1}s`,
                         animationFillMode: 'backwards'
                       }}
                     >
-                      <span className={`mt-0.5 flex-shrink-0 font-bold ${
-                        index === executionSteps.length - 1 
-                          ? 'text-cyan-500 animate-pulse' 
-                          : 'text-blue-500'
-                      }`}>
-                        {index === executionSteps.length - 1 ? '▸' : '✓'}
-                      </span>
-                      <span className="flex-1 font-medium">{step}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              
-              <div className="flex items-center gap-1.5 text-xs mt-1.5 px-1">
-                {activityCompleted ? (
-                  <>
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div>
-                    <span className="text-gray-500 font-medium">Done</span>
-                  </>
-                ) : (
-                  <>
-                    <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></div>
-                    <span className="text-gray-500 font-medium">Processing</span>
-                  </>
-                )}
-              </div>
-              
-              {/* Message tail */}
-              <div className="absolute w-2 h-2 left-0 -ml-1 bg-blue-50 bottom-[16px] transform rotate-45 border-l border-b border-blue-200"></div>
-            </div>
-          </div>
-        )}
-        
-        {/* 流式响应 - 显示在 Agent Activity 之后 */}
-        {streamingResponse && (
-          <div className="mb-4 flex justify-start">
-            <div className="relative max-w-[85%] mr-auto w-full" style={{ maxWidth: '85%' }}>
-              <div className="p-3.5 rounded-2xl shadow-lg bg-white/90 text-gray-800 border border-gray-200/50 backdrop-blur-sm">
-                <div className="markdown-content">
-                  <ReactMarkdown 
-                    remarkPlugins={[remarkGfm]}
-                    skipHtml={true}
-                    components={{
-                      pre: (props) => <pre className="bg-gray-800 text-white p-3 rounded-md overflow-auto my-2 text-sm" {...props} />,
-                      code: (props) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm" {...props} />,
-                      p: (props) => <p className="text-sm md:text-base mb-2 last:mb-0" {...props} />,
-                      table: (props) => (
-                        <div className="overflow-x-auto my-2">
-                          <table className="min-w-full text-xs border-collapse border border-gray-300" {...props} />
+                      <div className="p-3.5 rounded-2xl shadow-lg bg-white/90 text-gray-800 border border-gray-200/50 backdrop-blur-sm">
+                        <div className={`markdown-content ${typingAnimation && msg.content === 'Searching...' ? 'animate-pulse' : ''}`}>
+                          {typingAnimation && msg.content === 'Searching...' ? (
+                            <div className="flex items-center space-x-1.5 h-6">
+                              <div className="w-2.5 h-2.5 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full animate-bounce shadow-md shadow-cyan-500/50" style={{ animationDelay: '0ms' }}></div>
+                              <div className="w-2.5 h-2.5 bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full animate-bounce shadow-md shadow-blue-500/50" style={{ animationDelay: '150ms' }}></div>
+                              <div className="w-2.5 h-2.5 bg-gradient-to-r from-indigo-400 to-purple-500 rounded-full animate-bounce shadow-md shadow-indigo-500/50" style={{ animationDelay: '300ms' }}></div>
+                            </div>
+                          ) : (
+                            <ReactMarkdown 
+                              remarkPlugins={[remarkGfm]}
+                              skipHtml={true}
+                              components={{
+                                pre: (props) => <pre className="bg-gray-800 text-white p-3 rounded-md overflow-auto my-2 text-sm" {...props} />,
+                                code: (props) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono" {...props} />,
+                                p: (props) => <p className="text-sm md:text-base mb-2 last:mb-0" {...props} />,
+                                table: (props) => (
+                                  <div className="overflow-x-auto my-2">
+                                    <table className="min-w-full text-xs border-collapse border border-gray-300" {...props} />
+                                  </div>
+                                ),
+                                thead: (props) => <thead className="bg-gray-200" {...props} />,
+                                th: (props) => <th className="border border-gray-300 px-2 py-1 text-left font-semibold" {...props} />,
+                                td: (props) => <td className="border border-gray-300 px-2 py-1" {...props} />
+                              }}
+                            >
+                              {msg.content}
+                            </ReactMarkdown>
+                          )}
                         </div>
-                      ),
-                      thead: (props) => <thead className="bg-gray-200" {...props} />,
-                      th: (props) => <th className="border border-gray-300 px-2 py-1 text-left font-semibold" {...props} />,
-                      td: (props) => <td className="border border-gray-300 px-2 py-1" {...props} />
-                    }}
-                  >
-                    {streamingResponse}
-                  </ReactMarkdown>
-                </div>
-              </div>
-              
-              <div className="flex items-center gap-1.5 text-xs mt-1.5 px-1">
-                <div className="w-1.5 h-1.5 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 animate-pulse"></div>
-                <span className="text-gray-500 font-medium">AI Assistant</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-600 border border-cyan-300/30">Typing...</span>
-              </div>
-              
-              {/* Message tail */}
-              <div className="absolute w-2 h-2 left-0 -ml-1 bg-white/90 bottom-[20px] transform rotate-45 border-l border-b border-gray-200/50"></div>
-            </div>
+                      </div>
+                      
+                      <div className="text-xs mt-1.5 px-1 flex items-center gap-1.5">
+                        <div className="w-1.5 h-1.5 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 animate-pulse"></div>
+                        <span className="text-gray-500 font-medium bg-gradient-to-r from-gray-600 to-gray-500 bg-clip-text text-transparent">Azure Prices Agent</span>
+                      </div>
+                      
+                      <div className="absolute w-2 h-2 left-0 -ml-1 bg-gray-100 bottom-[16px] transform rotate-45"></div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
-        )}
+        ))}
         
         <div ref={messagesEndRef} />
       </div>

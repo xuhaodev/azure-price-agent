@@ -2,7 +2,7 @@
 
 import { PricingItem } from '@/lib/price-api';
 import { getRegionDisplayName } from '@/lib/azure-regions';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 
 type SortField = 'price' | 'product' | 'sku' | 'region' | '';
 type SortDirection = 'asc' | 'desc';
@@ -11,6 +11,8 @@ export default function PriceResults({ items, height }: { items: PricingItem[], 
   const [sortField, setSortField] = useState<SortField>('price');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [searchTerm, setSearchTerm] = useState('');
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const previousItemsLengthRef = useRef(0);
 
   // Sort and filter items - 将 useMemo 移到条件判断之前
   const sortedAndFilteredItems = useMemo(() => {
@@ -56,6 +58,18 @@ export default function PriceResults({ items, height }: { items: PricingItem[], 
 
   // 早期返回放在 useMemo 之后
   if (!items.length) return null;
+
+  // 当有新内容追加时，自动滚动到底部显示最新内容
+  useEffect(() => {
+    if (items.length > previousItemsLengthRef.current && tableContainerRef.current) {
+      // 使用 smooth 滚动到底部
+      tableContainerRef.current.scrollTo({
+        top: tableContainerRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+    previousItemsLengthRef.current = items.length;
+  }, [items.length]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -179,7 +193,7 @@ export default function PriceResults({ items, height }: { items: PricingItem[], 
         </div>
       </div>
       
-      <div className="overflow-x-auto overflow-y-auto flex-1">
+      <div ref={tableContainerRef} className="overflow-x-auto overflow-y-auto flex-1">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="sticky top-0 z-10">
             <tr className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 backdrop-blur-sm">

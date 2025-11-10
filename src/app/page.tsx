@@ -76,7 +76,7 @@ export default function Home() {
                   </div>
                 </div>
                 <h1 className="text-xl md:text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 via-blue-400 to-purple-400 drop-shadow-lg">
-                  Azure Price Agent
+                  Azure Prices Agent —— an agentic approach for Azure Retail Prices API
                 </h1>
               </div>
               
@@ -127,7 +127,7 @@ export default function Home() {
             
             {/* 短小介绍线 */}
             <p className="text-xs text-gray-300 mb-2">
-              Search prices, meter IDs, compare options, and more — powered by Agentic AI with Azure OpenAI Response API & GPT-5-codex
+              Search MCA-E prices, meter IDs, compare options, and more — built with GitHub Copilot and powered by Response API, Azure OpenAI GPT-5 and Azure WebApp
             </p>
           </div>
         </div>
