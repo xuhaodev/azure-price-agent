@@ -1,136 +1,89 @@
 # Azure Prices Agent
 
-Azure Prices Agent 是一个基于自然语言搜索和 AI Agent 的 Azure 云服务价格查询工具。通过自然语言对话，用户可以轻松查询 Azure 各种服务的价格信息、比较不同地区的定价、获取 Meter ID 等详细信息。
+[English](README.md) | [中文](README-cn.md)
 
-## ✨ 功能特点
+Azure Prices Agent is a natural-language driven AI Agent tool for querying Azure cloud service pricing. Through conversational queries, you can easily retrieve prices for Azure services, compare regional pricing, and obtain detailed fields like Meter IDs.
 
-- 🤖 **AI Agent 驱动**：使用 Azure OpenAI GPT-5-Codex 模型，智能理解用户意图
-- 💬 **自然语言查询**：无需记忆复杂的查询语法，使用日常语言提问即可
-- 📊 **详细价格数据**：显示 SKU、地区、计量单位、Meter ID、预留实例、节省计划等完整信息
-- 🔄 **流式响应**：实时显示 Agent 执行步骤和查询结果，提供流畅的用户体验
-- 🎯 **智能建议**：AI 助手分析查询结果，提供优化建议和替代方案
-- 📥 **数据导出**：支持将查询结果导出为 CSV 格式
-- 🔍 **结果过滤**：内置搜索和排序功能，快速定位所需信息
+## ✨ Features
 
-## 🚀 快速开始
+- 🤖 **AI Agent Powered**: Uses Azure OpenAI GPT-5-Codex deployment to intelligently interpret intent
+- 💬 **Natural Language Queries**: Ask in everyday language—no complex query syntax
+- 📊 **Rich Pricing Data**: Displays SKU, region, unit, Meter ID, reservation options, savings plan info, etc.
+- 🔄 **Streaming Responses**: See agent execution steps and partial results in real time
+- 🎯 **Intelligent Suggestions**: Assistant analyzes results and proposes optimizations or alternatives
+- 📥 **Export Data**: Export query results to CSV
+- 🔍 **Result Filtering**: Built‑in search/sort to quickly find what you need
 
-### 前置要求
+## 🚀 Quick Start
 
-- Node.js 18+ 
-- npm、yarn、pnpm 或 bun 包管理器
-- Azure OpenAI 服务实例（需部署 GPT-5-Codex 模型）
+### Prerequisites
+- Node.js 18+
+- Package manager: npm / yarn / pnpm / bun
+- Azure OpenAI service instance (with a GPT-5-Codex model deployment)
 
-### 本地开发
+### Local Development
 
-1. **克隆仓库**
+1. **Clone the repo**
 ```bash
 git clone https://github.com/xuhaodev/azure-price-agent.git
 cd azure-price-agent
 ```
-
-2. **安装依赖**
+2. **Install dependencies**
 ```bash
 npm install
-# 或
+# or
 yarn install
-# 或
+# or
 pnpm install
 ```
+3. **Configure environment variables**
 
-3. **配置环境变量**
-
-在项目根目录创建 `.env.local` 文件（或复制 `env.example`）：
-
+Create `.env.local` (or copy from `env.example`):
 ```bash
 cp env.example .env.local
 ```
-
-编辑 `.env.local` 文件，添加以下配置：
-
+Edit `.env.local`:
 ```env
-# Azure OpenAI 配置
+# Azure OpenAI
 AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
 AZURE_OPENAI_API_KEY=your-azure-openai-api-key
 AZURE_OPENAI_DEPLOYMENT_NAME=your-gpt5-codex-deployment-name
 
-# 可选：API 版本（默认使用最新版本）
+# Optional: explicit API version
 AZURE_OPENAI_API_VERSION=2024-08-01-preview
 ```
-
-4. **启动开发服务器**
+4. **Start dev server**
 ```bash
 npm run dev
 ```
+Visit http://localhost:3000
 
-在浏览器中访问 [http://localhost:3000](http://localhost:3000) 查看应用。
+## 🌐 Deploy to Azure Static Web Apps
 
-## 🌐 部署到 Azure Static Web Apps
+### Option 1: Azure Portal
+1. Create Static Web App in Azure Portal
+2. Basic settings: Subscription, Resource Group, Name, Plan (Free/Standard), Region
+3. Source: GitHub → select repo `azure-price-agent`, branch `main`
+4. Build Details:
+   - Build Preset: Next.js
+   - App location: `/`
+   - API location: (leave blank)
+   - Output location: `.next` or leave blank for default
+5. Configure environment variables after initial deployment (Portal → Configuration → Application settings):
 
-### 方式一：通过 Azure Portal 部署
+| Name | Value | Description |
+|------|-------|-------------|
+| `AZURE_OPENAI_ENDPOINT` | `https://your-resource.openai.azure.com/` | Azure OpenAI endpoint |
+| `AZURE_OPENAI_API_KEY` | `your-api-key` | API key |
+| `AZURE_OPENAI_DEPLOYMENT_NAME` | `your-deployment-name` | GPT-5-Codex deployment name |
+| `AZURE_OPENAI_API_VERSION` | `2024-08-01-preview` | (Optional) API version |
 
-1. **创建 Azure Static Web App**
-   - 登录 [Azure Portal](https://portal.azure.com)
-   - 点击 "Create a resource" > 搜索 "Static Web Apps"
-   - 点击 "Create"
+Save and redeploy (push a commit or manually rerun workflow).
 
-2. **基本配置**
-   - **Subscription**: 选择你的订阅
-   - **Resource Group**: 创建新的或选择现有的资源组
-   - **Name**: 输入应用名称（例如：azure-prices-agent）
-   - **Plan type**: 选择 "Free" 或 "Standard"
-   - **Region**: 选择离你最近的区域
-
-3. **部署详情**
-   - **Source**: 选择 "GitHub"
-   - **Organization**: 选择你的 GitHub 账户
-   - **Repository**: 选择 `azure-price-agent` 仓库
-   - **Branch**: 选择 `main` 分支
-
-4. **构建详情**
-   - **Build Presets**: 选择 "Next.js"
-   - **App location**: `/` （根目录）
-   - **Api location**: 留空
-   - **Output location**: `.next` 或留空（使用默认值）
-
-5. **配置环境变量**
-   
-   部署完成后，在 Azure Portal 中配置环境变量：
-   
-   a. 进入你创建的 Static Web App 资源
-   
-   b. 在左侧菜单中选择 **"Configuration"**
-   
-   c. 点击 **"Application settings"** 标签
-   
-   d. 点击 **"+ Add"** 按钮，添加以下环境变量：
-   
-   | Name | Value | 说明 |
-   |------|-------|------|
-   | `AZURE_OPENAI_ENDPOINT` | `https://your-resource.openai.azure.com/` | Azure OpenAI 服务端点 |
-   | `AZURE_OPENAI_API_KEY` | `your-api-key` | Azure OpenAI API 密钥 |
-   | `AZURE_OPENAI_DEPLOYMENT_NAME` | `your-deployment-name` | GPT-5-Codex 部署名称 |
-   | `AZURE_OPENAI_API_VERSION` | `2024-08-01-preview` | API 版本（可选） |
-   
-   e. 点击 **"Save"** 保存配置
-   
-   f. 环境变量会在下次部署时生效
-
-6. **触发重新部署**
-   
-   如果已经部署但环境变量未生效，可以通过以下方式触发重新部署：
-   - 推送新的提交到 GitHub 仓库
-   - 或在 GitHub Actions 中手动触发工作流
-
-### 方式二：通过 Azure CLI 部署
-
+### Option 2: Azure CLI
 ```bash
-# 安装 Azure Static Web Apps CLI
 npm install -g @azure/static-web-apps-cli
-
-# 登录 Azure
 az login
-
-# 创建 Static Web App
 az staticwebapp create \
   --name azure-prices-agent \
   --resource-group your-resource-group \
@@ -141,7 +94,6 @@ az staticwebapp create \
   --output-location ".next" \
   --login-with-github
 
-# 设置环境变量
 az staticwebapp appsettings set \
   --name azure-prices-agent \
   --setting-names \
@@ -151,89 +103,81 @@ az staticwebapp appsettings set \
     AZURE_OPENAI_API_VERSION="2024-08-01-preview"
 ```
 
-### 环境变量安全最佳实践
+### Environment Variable Security Best Practices
+- Never commit API keys
+- Consider Azure Key Vault for production secrets
+- Rotate keys regularly
+- Use distinct keys per environment (dev / test / prod)
 
-⚠️ **重要提示**：
-- 永远不要将 API 密钥提交到 Git 仓库
-- 使用 Azure Key Vault 存储敏感信息（生产环境推荐）
-- 定期轮换 API 密钥
-- 为不同环境（开发、测试、生产）使用不同的密钥
+### Verify Deployment
+1. Open the deployed URL
+2. Try a query: "What is the price of D4s v4 VM in West US 2?"
+3. Confirm Agent Activity streams execution steps
+4. Ensure pricing data loads correctly
 
-### 验证部署
-
-部署完成后：
-1. 访问 Azure Portal 中显示的应用 URL
-2. 测试查询功能，例如："West US 2 地区的 D4s v4 虚拟机价格是多少？"
-3. 检查 Agent Activity 是否正常显示执行步骤
-4. 确认价格数据能够正确加载和显示
-
-## 🛠️ 技术栈
-
-- **前端框架**: Next.js 15 (React 19)
-- **样式**: TailwindCSS
-- **AI 服务**: Azure OpenAI (GPT-5-Codex)
-- **数据源**: Azure Retail Prices API
-- **部署**: Azure Static Web Apps
+## 🛠️ Tech Stack
+- **Framework**: Next.js 15 (React 19)
+- **Styling**: TailwindCSS
+- **AI**: Azure OpenAI (GPT-5-Codex)
+- **Data Source**: Azure Retail Prices API
+- **Hosting**: Azure Static Web Apps
 - **CI/CD**: GitHub Actions
 
-## 📖 使用示例
+## 📖 Usage Examples
 
-### 查询价格
+### Price Queries
 ```
-"West US 2 地区的 Standard D4s v4 虚拟机的价格是多少？"
-"查询东亚地区所有 D 系列虚拟机的价格"
-"M50 Redis 缓存在 West US 2 的 meter id 是什么？"
+"Price of Standard D4s v4 VM in West US 2"
+"List all D-series VM prices in East Asia"
+"Meter ID for M50 Redis Cache in West US 2"
 ```
-
-### 比较价格
+### Compare Pricing
 ```
-"比较 East US 和 West US 2 地区 D8s v4 的价格"
-"哪个美国地区的 D16s v4 最便宜？"
+"Compare D8s v4 prices between East US and West US 2"
+"Which US region has the cheapest D16s v4?"
 ```
-
-### 获取详细信息
+### Detailed Info
 ```
-"D4s v4 有哪些预留实例选项？"
-"显示 Azure Redis 的节省计划价格"
+"What reservation options exist for D4s v4?"
+"Show savings plan prices for Azure Redis"
 ```
 
-## 📁 项目结构
-
+## 📁 Project Structure
 ```
 azure-price-agent/
 ├── src/
-│   ├── app/              # Next.js 应用路由
-│   │   ├── api/          # API 路由
-│   │   │   └── prices/   # 价格查询 API
-│   │   ├── globals.css   # 全局样式
-│   │   ├── layout.tsx    # 根布局
-│   │   └── page.tsx      # 首页
-│   ├── components/       # React 组件
-│   │   ├── ChatInterface.tsx   # 聊天界面
-│   │   ├── PriceResults.tsx    # 价格结果表格
-│   │   └── QueryFilter.tsx     # 查询过滤器
-│   └── lib/             # 工具库
-│       ├── agentPrompt.ts      # Agent 提示词
-│       ├── azure-regions.ts    # Azure 地区映射
-│       ├── price-api.ts        # 价格 API 客户端
-│       └── schema.ts           # 数据模型
-├── public/              # 静态资源
-├── .github/             # GitHub Actions 工作流
-└── package.json         # 项目配置
+│   ├── app/              # Next.js app router
+│   │   ├── api/
+│   │   │   └── prices/   # Pricing API route
+│   │   ├── globals.css
+│   │   ├── layout.tsx
+│   │   └── page.tsx
+│   ├── components/
+│   │   ├── ChatInterface.tsx
+│   │   ├── PriceResults.tsx
+│   │   └── QueryFilter.tsx
+│   └── lib/
+│       ├── agentPrompt.ts
+│       ├── azure-regions.ts
+│       ├── price-api.ts
+│       └── schema.ts
+├── public/
+├── .github/
+└── package.json
 ```
 
-## 🤝 贡献
+## 🤝 Contributing
+Issues and Pull Requests are welcome!
 
-欢迎提交 Issues 和 Pull Requests！
+## 📄 License
+MIT License.
 
-## 📄 许可证
+## 📚 Resources
+- [Next.js Docs](https://nextjs.org/docs)
+- [Azure OpenAI Service](https://azure.microsoft.com/products/ai-services/openai-service)
+- [Azure Retail Prices API](https://learn.microsoft.com/rest/api/cost-management/retail-prices/azure-retail-prices)
+- [Azure Static Web Apps](https://learn.microsoft.com/azure/static-web-apps/)
+- [TailwindCSS Docs](https://tailwindcss.com/docs)
 
-本项目采用 MIT 许可证。
-
-## 📚 相关资源
-
-- [Next.js 文档](https://nextjs.org/docs) - 了解 Next.js 功能和 API
-- [Azure OpenAI 服务](https://azure.microsoft.com/products/ai-services/openai-service) - Azure OpenAI 服务文档
-- [Azure Retail Prices API](https://learn.microsoft.com/rest/api/cost-management/retail-prices/azure-retail-prices) - Azure 价格 API 文档
-- [Azure Static Web Apps 文档](https://learn.microsoft.com/azure/static-web-apps/) - 部署和配置指南
-- [TailwindCSS 文档](https://tailwindcss.com/docs) - CSS 框架文档
+---
+Need Chinese? View the full Chinese version: [README-cn.md](README-cn.md)
