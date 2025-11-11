@@ -10,7 +10,9 @@ export async function POST(request: NextRequest) {
             return Response.json({ error: 'Prompt is required' }, { status: 400 });
         }
         
-        // Use updated queryPricing function, return streaming response
+        // Use streaming response function
+        // Pass previous_response_id to maintain single conversation thread
+        // Agent will decide whether to call tools based on the query context
         const stream = await queryPricingWithStreamingResponse(prompt, previous_response_id || undefined);
         
         // Return streaming response

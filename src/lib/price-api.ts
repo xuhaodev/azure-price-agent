@@ -195,6 +195,8 @@ async function executePricingWorkflow(
         await hooks.onStepUpdate('🔍 Analyzing your query and planning data collection...');
     }
 
+    // Create response with previous_response_id to continue the same conversation thread
+    // The agent will decide whether to call tools based on the query
     let response: Response = await client.responses.create({
         model,
         input: buildConversation(prompt),
@@ -352,7 +354,8 @@ export async function queryPricingWithStreamingResponse(
                     }
                 });
 
-                // First send response_id to client for next round of conversation
+                // Send response_id to client to establish/maintain session context
+                // All interactions in the same session will use the same response_id
                 const responseIdPayload = {
                     type: 'response_id',
                     data: { response_id: responseId }

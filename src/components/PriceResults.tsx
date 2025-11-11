@@ -25,6 +25,7 @@ export default function PriceResults({ items, height }: { items: PricingItem[], 
       const lowerSearchTerm = searchTerm.toLowerCase().trim();
       filteredItems = items.filter(item => 
         item.armSkuName?.toLowerCase().includes(lowerSearchTerm) || 
+        item.meterName?.toLowerCase().includes(lowerSearchTerm) ||
         item.productName?.toLowerCase().includes(lowerSearchTerm) ||
         item.armRegionName?.toLowerCase().includes(lowerSearchTerm) ||
         getRegionDisplayName(item.armRegionName)?.toLowerCase().includes(lowerSearchTerm)
@@ -68,8 +69,7 @@ export default function PriceResults({ items, height }: { items: PricingItem[], 
     previousItemsLengthRef.current = items.length;
   }, [items.length]);
 
-  // Early return placed after all Hooks
-  if (!items.length) return null;
+  // Don't return null - always show the card even when empty
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {

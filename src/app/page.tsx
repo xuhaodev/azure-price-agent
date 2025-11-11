@@ -36,10 +36,10 @@ export default function Home() {
 
   const handleResults = ({items, filter, append = false}: {items: PricingItem[], filter: string, append?: boolean}) => {
     if (append) {
-      // Append mode: add new data to existing results
+      // Append mode: accumulate results in same session
       setResults(prev => [...prev, ...items]);
     } else {
-      // Replace mode: clear and set new data
+      // Replace mode: new session starts, clear and set new data
       setResults(items);
     }
     console.log('OData Query Filter:', filter, `(${append ? 'appended' : 'replaced'} ${items.length} items)`);
@@ -135,8 +135,8 @@ export default function Home() {
         {/* Chat interface and results in the same row */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
           {/* Results section - takes 7 columns on large screens, now on the left */}
-          <div className={`lg:col-span-7 transition-opacity duration-300 ${results.length > 0 ? 'opacity-100' : 'opacity-0'}`}>
-            {results.length > 0 && <PriceResults items={results} height={chatHeight} />}
+          <div className="lg:col-span-7">
+            <PriceResults items={results} height={chatHeight} />
           </div>
           
           {/* Chat interface - takes 5 columns on large screens, now on the right */}

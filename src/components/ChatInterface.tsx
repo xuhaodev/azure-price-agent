@@ -5,6 +5,13 @@ import { PricingItem } from '@/lib/price-api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+/**
+ * Multi-turn conversation with single session context
+ * - All queries in the same session append data to the price results table
+ * - Only Clear button resets session and clears table
+ * - Agent autonomously decides whether to call tools based on context
+ */
+
 type Message = {
   role: 'user' | 'assistant';
   content: string;
@@ -70,7 +77,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     if (executionSteps.length > visibleStepsCount) {
       const timer = setTimeout(() => {
         setVisibleStepsCount(prev => prev + 1);
-      }, 200); // Display each step with 200ms delay, fast yet elegant
+      }, 80); // Display each step with 80ms delay, fast and elegant
       
       return () => clearTimeout(timer);
     }
@@ -110,7 +117,8 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     setVisibleStepsCount(0); // Reset visible step count
     setActivityCompleted(false); // Reset completion status
 
-    // Note: no longer automatically clear results table, only update when new price_data is received
+    // In same session, all price data is appended to table
+    // Only Clear button will reset the table
 
     try {
       // Use streaming API, pass previous_response_id to maintain conversation context
@@ -137,7 +145,6 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
       let aiResponseComplete = false;
       let fullAiResponse = '';
       let buffer = ''; // Add buffer to handle incomplete JSON
-      let priceDataCount = 0; // Track count of received price_data
 
       // Read streaming response
       while (!aiResponseComplete) {
@@ -172,8 +179,9 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
               // Handle different message types
               switch(data.type) {
                 case 'response_id':
-                  // Update session's response_id
-                  if (data.data.response_id) {
+                  // Update session's response_id ONLY if we don't have one yet
+                  // This ensures all conversations in this session use the same response_id
+                  if (data.data.response_id && !sessionResponseId) {
                     setSessionResponseId(data.data.response_id);
                   }
                   break;
@@ -184,15 +192,15 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                   break;
 
                 case 'price_data':
-                  // Received price data, display to user in append mode
+                  // Received price data from tool call - append to table
+                  // In the same session, always append; only clear on new session (Clear button)
                   priceDataReceived = true;
-                  priceDataCount++;
                   
                   onResults({
                     items: data.data.Items,
                     filter: data.data.filter,
-                    aiResponse: undefined, // Don't set AI response yet, still in streaming
-                    append: priceDataCount > 1 // First time replace, subsequent append
+                    aiResponse: undefined,
+                    append: sessionResponseId !== null // Append if session exists, replace if new session
                   });
                   break;
                   
@@ -224,7 +232,8 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                   break;
                 
                 case 'direct_response':
-                  // Direct response (when no function call)
+                  // Direct response (when agent doesn't call tool)
+                  // Do NOT clear/update price results - keep existing results visible
                   aiResponseComplete = true;
                   
                   // Update message content
@@ -234,17 +243,21 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                       : msg
                   ));
                   
-                  // Clear results (no price data)
-                  onResults({
-                    items: [],
-                    filter: '',
-                    aiResponse: data.data.content,
-                    append: false
-                  });
+                  // Don't touch onResults - price table stays as-is
                   break;
                   
                 case 'error':
-                  throw new Error(data.data.message || 'Unknown error in stream');
+                  // Handle error gracefully - don't throw, just display to user
+                  aiResponseComplete = true;
+                  const errorMessage = data.data.message || 'Unknown error occurred';
+                  console.error('Stream error:', errorMessage);
+                  
+                  setMessages(prev => prev.map(msg => 
+                    msg.id === loadingMsgId 
+                      ? { ...msg, content: `Error: ${errorMessage}` } 
+                      : msg
+                  ));
+                  break;
               }
             } catch (err) {
               console.error('Error parsing SSE JSON:', err, messageJson);
@@ -253,7 +266,15 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                 // Try to extract error info even if JSON parsing fails
                 const errorMatch = messageJson.match(/"message"\s*:\s*"([^"]+)"/);
                 const errorMsg = errorMatch ? errorMatch[1] : 'Malformed error data from server';
-                throw new Error(errorMsg);
+                
+                // Display error to user instead of throwing
+                aiResponseComplete = true;
+                setMessages(prev => prev.map(msg => 
+                  msg.id === loadingMsgId 
+                    ? { ...msg, content: `Error: ${errorMsg}` } 
+                    : msg
+                ));
+                break; // Exit the inner loop to handle gracefully
               }
             }
           }
@@ -309,8 +330,8 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     setExecutionSteps([]);
     setVisibleStepsCount(0); // Reset visible step count
     setActivityCompleted(false); // Reset completion status
-    setSessionResponseId(null); // Reset session context
-    onResults({ items: [], filter: '', append: false });
+    setSessionResponseId(null); // Reset session - next query will be a new session
+    onResults({ items: [], filter: '', append: false }); // Clear table for new session
   };
 
   return (
