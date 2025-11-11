@@ -1,5 +1,5 @@
-// 精简的 Azure VM 类型映射 - 仅保留核心信息,大幅降低 token 消耗
-// 格式: Type|Family|Keywords|Example
+// Streamlined Azure VM type mapping - only keep core info, greatly reduce token consumption
+// Format: Type|Family|Keywords|Example
 export const azureVmSize = [
   { type: "General", family: "A", keywords: "economical, entry-level, balanced", example: "Standard_A1_v2" },
   { type: "General", family: "B", keywords: "burstable, credits, variable", example: "Standard_B1s" },
@@ -12,7 +12,7 @@ export const azureVmSize = [
   { type: "Memory", family: "EC", keywords: "confidential, memory-intensive", example: "Standard_EC2s_v5" },
   { type: "Memory", family: "M", keywords: "ultra-high memory, large databases", example: "Standard_M128ms" },
   { type: "Storage", family: "L", keywords: "storage-intensive, high throughput, big data", example: "Standard_L8s_v3" },
-  { type: "GPU", family: "NC", keywords: "GPU, NVIDIA, visualization", example: "Standard_NC6" },
+  { type: "GPU", family: "NC", keywords: "GPU, NVIDIA, visualization, high price-performance", example: "Standard_NC6" },
   { type: "GPU", family: "ND", keywords: "deep learning, AI, large memory", example: "Standard_ND40rs_v2" },
   { type: "GPU", family: "NG", keywords: "gaming, VDI, AMD Radeon", example: "Standard_NG32ads_V620_v1" },
   { type: "GPU", family: "NV", keywords: "graphics, rendering, NVIDIA", example: "Standard_NV6" },

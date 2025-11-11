@@ -10,10 +10,10 @@ export async function POST(request: NextRequest) {
             return Response.json({ error: 'Prompt is required' }, { status: 400 });
         }
         
-        // 使用更新后的 queryPricing 函数，返回流式响应
+        // Use updated queryPricing function, return streaming response
         const stream = await queryPricingWithStreamingResponse(prompt, previous_response_id || undefined);
         
-        // 返回流式响应
+        // Return streaming response
         return new Response(stream, {
             headers: {
                 'Content-Type': 'text/event-stream',

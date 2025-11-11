@@ -1,5 +1,5 @@
-// 完整的 Azure 区域映射 - 包含所有可用区域
-// 格式: "code|display" 节省空间
+// Complete Azure region mapping - includes all available regions
+// Format: "code|display" to save space
 const regionMap = `australiacentral|Australia Central
 australiacentral2|Australia Central 2
 australiaeast|Australia East
@@ -57,7 +57,7 @@ westus|West US
 westus2|West US 2
 westus3|West US 3`;
 
-// 懒加载解析映射表
+// Lazy load parsing mapping table
 let cachedRegions: Record<string, string> | null = null;
 
 function getRegionMap(): Record<string, string> {

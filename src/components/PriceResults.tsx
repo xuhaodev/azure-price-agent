@@ -14,7 +14,7 @@ export default function PriceResults({ items, height }: { items: PricingItem[], 
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const previousItemsLengthRef = useRef(0);
 
-  // Sort and filter items - 将 useMemo 移到条件判断之前
+  // Sort and filter items - move useMemo before conditional check
   const sortedAndFilteredItems = useMemo(() => {
     if (!items.length) return [];
     
@@ -56,10 +56,10 @@ export default function PriceResults({ items, height }: { items: PricingItem[], 
     });
   }, [items, sortField, sortDirection, searchTerm]);
 
-  // 当有新内容追加时，自动滚动到底部显示最新内容
+  // When new content is appended, auto-scroll to bottom to show latest content
   useEffect(() => {
     if (items.length > previousItemsLengthRef.current && tableContainerRef.current) {
-      // 使用 smooth 滚动到底部
+      // Use smooth scroll to bottom
       tableContainerRef.current.scrollTo({
         top: tableContainerRef.current.scrollHeight,
         behavior: 'smooth'
@@ -68,7 +68,7 @@ export default function PriceResults({ items, height }: { items: PricingItem[], 
     previousItemsLengthRef.current = items.length;
   }, [items.length]);
 
-  // 早期返回放在所有 Hooks 之后
+  // Early return placed after all Hooks
   if (!items.length) return null;
 
   const handleSort = (field: SortField) => {

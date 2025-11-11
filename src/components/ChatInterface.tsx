@@ -25,13 +25,13 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
   const [typingAnimation, setTypingAnimation] = useState(false);
   const [streamingResponse, setStreamingResponse] = useState('');
   const [executionSteps, setExecutionSteps] = useState<string[]>([]);
-  const [visibleStepsCount, setVisibleStepsCount] = useState(0); // 控制可见步骤数量
-  const [activityCompleted, setActivityCompleted] = useState(false); // 跟踪 Agent Activity 是否完成
-  const [sessionResponseId, setSessionResponseId] = useState<string | null>(null); // 维护会话上下文
+  const [visibleStepsCount, setVisibleStepsCount] = useState(0); // Control visible step count
+  const [activityCompleted, setActivityCompleted] = useState(false); // Track if Agent Activity is completed
+  const [sessionResponseId, setSessionResponseId] = useState<string | null>(null); // Maintain session context
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  const activityScrollRef = useRef<HTMLDivElement>(null); // Agent Activity 滚动容器
+  const activityScrollRef = useRef<HTMLDivElement>(null); // Agent Activity scroll container
 
   useEffect(() => {
     // Add initial message
@@ -45,7 +45,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
   }, []);
 
   useEffect(() => {
-    // 修改滚动逻辑,仅在聊天容器内部滚动,而不是整个页面
+    // Modify scroll logic to only scroll within chat container, not the entire page
     if (messagesEndRef.current && chatContainerRef.current) {
       const chatContainer = chatContainerRef.current.querySelector('.overflow-y-auto');
       if (chatContainer) {
@@ -54,10 +54,10 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     }
   }, [messages, streamingResponse, executionSteps]);
 
-  // 当可见步骤更新时，自动滚动 Agent Activity 到最新内容
+  // Auto-scroll Agent Activity to latest content when visible steps are updated
   useEffect(() => {
     if (activityScrollRef.current && visibleStepsCount > 0) {
-      // 使用 smooth 滚动，创造更优雅的效果
+      // Use smooth scrolling for a more elegant effect
       activityScrollRef.current.scrollTo({
         top: activityScrollRef.current.scrollHeight,
         behavior: 'smooth'
@@ -65,12 +65,12 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     }
   }, [visibleStepsCount]);
 
-  // 优雅地逐步显示执行步骤
+  // Gradually display execution steps elegantly
   useEffect(() => {
     if (executionSteps.length > visibleStepsCount) {
       const timer = setTimeout(() => {
         setVisibleStepsCount(prev => prev + 1);
-      }, 200); // 每个步骤延迟200ms显示，快速而优雅
+      }, 200); // Display each step with 200ms delay, fast yet elegant
       
       return () => clearTimeout(timer);
     }
@@ -107,19 +107,19 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     setTypingAnimation(true);
     setStreamingResponse('');
     setExecutionSteps([]);
-    setVisibleStepsCount(0); // 重置可见步骤计数
-    setActivityCompleted(false); // 重置完成状态
+    setVisibleStepsCount(0); // Reset visible step count
+    setActivityCompleted(false); // Reset completion status
 
-    // 注意:不再自动清空结果表,只有当收到新的 price_data 时才更新
+    // Note: no longer automatically clear results table, only update when new price_data is received
 
     try {
-      // 使用流式API，传递 previous_response_id 以维护对话上下文
+      // Use streaming API, pass previous_response_id to maintain conversation context
       const response = await fetch('/api/prices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           prompt: userMessage,
-          previous_response_id: sessionResponseId // 传递上一轮的 response_id
+          previous_response_id: sessionResponseId // Pass previous round's response_id
         }),
       });
 
@@ -128,7 +128,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
         throw new Error(errorData.details || errorData.error || 'Query failed');
       }
 
-      // 处理SSE流响应
+      // Process SSE streaming response
       const reader = response.body?.getReader();
       if (!reader) throw new Error('Failed to get reader from response');
       
@@ -136,10 +136,10 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
       let priceDataReceived = false;
       let aiResponseComplete = false;
       let fullAiResponse = '';
-      let buffer = ''; // 添加缓冲区用于处理不完整的 JSON
-      let priceDataCount = 0; // 追踪已收到的 price_data 数量
+      let buffer = ''; // Add buffer to handle incomplete JSON
+      let priceDataCount = 0; // Track count of received price_data
 
-      // 读取流式响应
+      // Read streaming response
       while (!aiResponseComplete) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -147,57 +147,57 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
         const chunk = decoder.decode(value, { stream: true });
         buffer += chunk;
         
-        // 寻找完整的 SSE 消息
+        // Find complete SSE messages
         const messages = [];
         let match;
-        // 移除 's' 标志，使用更兼容的方式处理换行符
+        // Remove 's' flag, use more compatible way to handle newlines
         const messageRegex = /data: ({.*?})\n\n/g;
         
-        // 提取所有完整的消息
+        // Extract all complete messages
         while ((match = messageRegex.exec(buffer)) !== null) {
           messages.push(match[1]);
         }
         
         if (messages.length > 0) {
-          // 更新缓冲区，只保留未完成的部分
+          // Update buffer, only keep incomplete parts
           const lastIndex = buffer.lastIndexOf('data: {');
           const lastComplete = buffer.lastIndexOf('\n\n', lastIndex) + 2;
           buffer = lastIndex > lastComplete ? buffer.substring(lastIndex) : '';
           
-          // 处理提取出的完整消息
+          // Process extracted complete messages
           for (const messageJson of messages) {
             try {
               const data = JSON.parse(messageJson);
               
-              // 处理不同类型的消息
+              // Handle different message types
               switch(data.type) {
                 case 'response_id':
-                  // 更新会话的 response_id
+                  // Update session's response_id
                   if (data.data.response_id) {
                     setSessionResponseId(data.data.response_id);
                   }
                   break;
 
                 case 'step_update':
-                  // 收到执行步骤更新
+                  // Received execution step update
                   setExecutionSteps(prev => [...prev, data.data.message]);
                   break;
 
                 case 'price_data':
-                  // 收到价格数据，以追加方式显示给用户
+                  // Received price data, display to user in append mode
                   priceDataReceived = true;
                   priceDataCount++;
                   
                   onResults({
                     items: data.data.Items,
                     filter: data.data.filter,
-                    aiResponse: undefined, // 先不设置AI响应，因为还在流式处理中
-                    append: priceDataCount > 1 // 第一次替换，后续追加
+                    aiResponse: undefined, // Don't set AI response yet, still in streaming
+                    append: priceDataCount > 1 // First time replace, subsequent append
                   });
                   break;
                   
                 case 'ai_response_chunk':
-                  // 收到AI响应的一部分，追加到已有的流响应中
+                  // Received part of AI response, append to existing stream response
                   if (priceDataReceived && data.data.content) {
                     fullAiResponse += data.data.content;
                     setStreamingResponse(fullAiResponse);
@@ -205,36 +205,36 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                   break;
                   
                 case 'ai_response_complete':
-                  // AI响应完成
+                  // AI response complete
                   aiResponseComplete = true;
                   if (priceDataReceived) {
-                    // 隐藏流式响应，避免重复显示
+                    // Hide streaming response to avoid duplicate display
                     setStreamingResponse('');
                     
-                    // 更新最终的消息
+                    // Update final message
                     setMessages(prev => prev.map(msg => 
                       msg.id === loadingMsgId 
                         ? { ...msg, content: fullAiResponse || data.data.content } 
                         : msg
                     ));
                     
-                    // 最终更新不需要追加（因为数据已经在之前追加过了）
-                    // 这里只是更新 aiResponse
+                    // Final update doesn't need append (data already appended earlier)
+                    // Only update aiResponse here
                   }
                   break;
                 
                 case 'direct_response':
-                  // 直接响应（无function call时）
+                  // Direct response (when no function call)
                   aiResponseComplete = true;
                   
-                  // 更新消息内容
+                  // Update message content
                   setMessages(prev => prev.map(msg => 
                     msg.id === loadingMsgId 
                       ? { ...msg, content: data.data.content } 
                       : msg
                   ));
                   
-                  // 清空结果（因为没有价格数据）
+                  // Clear results (no price data)
                   onResults({
                     items: [],
                     filter: '',
@@ -248,9 +248,9 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
               }
             } catch (err) {
               console.error('Error parsing SSE JSON:', err, messageJson);
-              // 如果是关键消息解析失败，尝试保持过程继续但记录错误
+              // If critical message parsing fails, try to continue but log error
               if (messageJson.includes('"type":"error"')) {
-                // 尝试提取错误信息，即使JSON解析失败
+                // Try to extract error info even if JSON parsing fails
                 const errorMatch = messageJson.match(/"message"\s*:\s*"([^"]+)"/);
                 const errorMsg = errorMatch ? errorMatch[1] : 'Malformed error data from server';
                 throw new Error(errorMsg);
@@ -260,9 +260,9 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
         }
       }
       
-      // 如果流结束但未收到完成消息，完成处理
+      // If stream ends but no completion message received, finalize processing
       if (!aiResponseComplete && priceDataReceived) {
-        // 更新最终消息
+        // Update final message
         setMessages(prev => prev.map(msg => 
           msg.id === loadingMsgId 
             ? { ...msg, content: fullAiResponse || "Response processing completed" } 
@@ -288,8 +288,8 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
       ));
     } finally {
       setLoading(false);
-      // 延迟设置完成状态,让用户能看到完整的步骤列表
-      // 使用 setTimeout 确保在状态更新后执行
+      // Delay setting completion status to let user see complete step list
+      // Use setTimeout to ensure execution after state update
       setTimeout(() => {
         setActivityCompleted(true);
       }, 300);
@@ -307,9 +307,9 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     setInput('');
     setStreamingResponse('');
     setExecutionSteps([]);
-    setVisibleStepsCount(0); // 重置可见步骤计数
-    setActivityCompleted(false); // 重置完成状态
-    setSessionResponseId(null); // 重置会话上下文
+    setVisibleStepsCount(0); // Reset visible step count
+    setActivityCompleted(false); // Reset completion status
+    setSessionResponseId(null); // Reset session context
     onResults({ items: [], filter: '', append: false });
   };
 

@@ -10,25 +10,25 @@ export default function Home() {
   const [results, setResults] = useState<PricingItem[]>([]);
   const [chatHeight, setChatHeight] = useState('450px');
 
-  // 根据屏幕高度动态调整卡片高度，完全自适应
+  // Dynamically adjust card height based on screen height, fully responsive
   useEffect(() => {
     const updateChatHeight = () => {
       const vh = window.innerHeight;
-      // 计算可用高度：视口高度 - 标题区域 - 顶部padding - 底部padding - gap
-      const headerHeight = 120; // 标题区域实际高度（包含padding和margin）
+      // Calculate available height: viewport height - header area - top padding - bottom padding - gap
+      const headerHeight = 120; // Actual header area height (including padding and margin)
       const topPadding = 12; // py-3 = 12px
       const bottomPadding = 12;
       const gap = 16; // gap-4 = 16px
       const availableHeight = vh - headerHeight - topPadding - bottomPadding - gap;
       
-      // 设置最小高度以保证基本可用性
+      // Set minimum height to ensure basic usability
       const minHeight = 400;
       const calculatedHeight = Math.max(minHeight, availableHeight);
       
       setChatHeight(`${calculatedHeight}px`);
     };
 
-    // 初始化和窗口大小改变时更新高度
+    // Initialize and update height on window resize
     updateChatHeight();
     window.addEventListener('resize', updateChatHeight);
     return () => window.removeEventListener('resize', updateChatHeight);
@@ -36,10 +36,10 @@ export default function Home() {
 
   const handleResults = ({items, filter, append = false}: {items: PricingItem[], filter: string, append?: boolean}) => {
     if (append) {
-      // 追加模式：将新数据添加到现有结果
+      // Append mode: add new data to existing results
       setResults(prev => [...prev, ...items]);
     } else {
-      // 替换模式：清空并设置新数据
+      // Replace mode: clear and set new data
       setResults(items);
     }
     console.log('OData Query Filter:', filter, `(${append ? 'appended' : 'replaced'} ${items.length} items)`);
