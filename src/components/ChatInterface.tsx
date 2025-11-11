@@ -36,7 +36,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
   const [activityCompleted, setActivityCompleted] = useState(false); // Track if Agent Activity is completed
   const [sessionResponseId, setSessionResponseId] = useState<string | null>(null); // Maintain session context
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const activityScrollRef = useRef<HTMLDivElement>(null); // Agent Activity scroll container
 
@@ -72,6 +72,36 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     }
   }, [visibleStepsCount]);
 
+  // Also scroll when executionSteps content changes (for in-place updates)
+  useEffect(() => {
+    if (activityScrollRef.current && executionSteps.length > 0) {
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        if (activityScrollRef.current) {
+          activityScrollRef.current.scrollTo({
+            top: activityScrollRef.current.scrollHeight,
+            behavior: 'smooth'
+          });
+        }
+      });
+    }
+  }, [executionSteps]);
+
+  // Force scroll to bottom when activity completes
+  useEffect(() => {
+    if (activityCompleted && activityScrollRef.current) {
+      // Delay to ensure all DOM updates are complete
+      setTimeout(() => {
+        if (activityScrollRef.current) {
+          activityScrollRef.current.scrollTo({
+            top: activityScrollRef.current.scrollHeight,
+            behavior: 'smooth'
+          });
+        }
+      }, 200);
+    }
+  }, [activityCompleted]);
+
   // Gradually display execution steps elegantly
   useEffect(() => {
     if (executionSteps.length > visibleStepsCount) {
@@ -89,6 +119,11 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
 
     const userMessage = input.trim();
     setInput('');
+    
+    // Reset textarea height
+    if (inputRef.current) {
+      inputRef.current.style.height = '48px';
+    }
     
     // Generate a unique ID for the message
     const userMessageId = `user-${Date.now()}`;
@@ -188,7 +223,56 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
 
                 case 'step_update':
                   // Received execution step update
-                  setExecutionSteps(prev => [...prev, data.data.message]);
+                  const newMessage = data.data.message;
+                  
+                  setExecutionSteps(prev => {
+                    // Check for query start pattern
+                    const queryStartMatch = newMessage.match(/^🔎 Query (\d+)\/(\d+)/);
+                    // Check for query result pattern  
+                    const queryResultMatch = newMessage.match(/^✅ Query (\d+)\/(\d+)/);
+                    
+                    if (queryStartMatch || queryResultMatch) {
+                      // Extract query numbers
+                      const match = queryStartMatch || queryResultMatch;
+                      const current = parseInt(match[1]);
+                      const total = parseInt(match[2]);
+                      
+                      // Find existing progress line
+                      const progressIdx = prev.findIndex(s => s.includes('📊 Progress:') || s.includes('✅ Complete:'));
+                      
+                      if (current === total && queryResultMatch) {
+                        // Last query completed
+                        const completeLine = `✅ Complete: ${total}/${total} queries executed successfully`;
+                        if (progressIdx >= 0) {
+                          const updated = [...prev];
+                          updated[progressIdx] = completeLine;
+                          return updated;
+                        }
+                        return [...prev, completeLine];
+                      } else if (queryResultMatch) {
+                        // Query completed
+                        const progressLine = `📊 Progress: ${current}/${total} queries completed (${Math.round(current/total*100)}%)`;
+                        if (progressIdx >= 0) {
+                          const updated = [...prev];
+                          updated[progressIdx] = progressLine;
+                          return updated;
+                        }
+                        return [...prev, progressLine];
+                      } else {
+                        // Query started
+                        const progressLine = `📊 Progress: ${current}/${total} - Executing query...`;
+                        if (progressIdx >= 0) {
+                          const updated = [...prev];
+                          updated[progressIdx] = progressLine;
+                          return updated;
+                        }
+                        return [...prev, progressLine];
+                      }
+                    }
+                    
+                    // Not a query message, append normally
+                    return [...prev, newMessage];
+                  });
                   break;
 
                 case 'price_data':
@@ -593,24 +677,49 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
         onSubmit={handleSubmit} 
         className="border-t border-blue-200/30 p-3 md:p-4 bg-gradient-to-r from-blue-50/50 to-indigo-50/50 backdrop-blur-sm"
       >
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-2 items-end">
           <div className="relative flex-1">
-            <input
-              ref={inputRef}
-              type="text"
+            <textarea
+              ref={inputRef as React.RefObject<HTMLTextAreaElement>}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                setInput(e.target.value);
+                // Auto-resize textarea up to 3 lines
+                const lineHeight = 24; // Approximate line height in pixels
+                const padding = 24; // Total vertical padding (12px top + 12px bottom)
+                const maxLines = 3;
+                const maxHeight = lineHeight * maxLines + padding;
+                
+                e.target.style.height = 'auto';
+                const newHeight = Math.min(e.target.scrollHeight, maxHeight);
+                e.target.style.height = newHeight + 'px';
+              }}
+              onKeyDown={(e) => {
+                // Submit on Enter (without Shift)
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSubmit(e as unknown as React.FormEvent);
+                }
+              }}
               placeholder="💬 Ask me anything about Azure pricing..."
-              className="w-full p-3 pr-10 border border-gray-300/50 rounded-xl focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all shadow-lg text-sm md:text-base bg-white/90 backdrop-blur-sm placeholder:text-gray-400"
+              className="w-full p-3 pr-10 border border-gray-300/50 rounded-xl focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all shadow-lg text-sm md:text-base bg-white/90 backdrop-blur-sm placeholder:text-gray-400 resize-none overflow-y-auto leading-6"
+              style={{ minHeight: '48px', maxHeight: '96px' }}
               disabled={loading}
               spellCheck={false}
               autoFocus
+              rows={1}
             />
             {input.trim() && !loading && (
               <button 
                 type="button"
-                onClick={() => setInput('')}
-                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                onClick={() => {
+                  setInput('');
+                  // Reset textarea height
+                  if (inputRef.current) {
+                    (inputRef.current as HTMLTextAreaElement).style.height = '48px';
+                  }
+                }}
+                className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
                   <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -621,7 +730,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
           <button 
             type="submit"
             disabled={loading || !input.trim()}
-            className="px-5 py-3 bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-600 text-white rounded-xl hover:from-cyan-600 hover:via-blue-600 hover:to-indigo-700 disabled:from-blue-300 disabled:to-indigo-400 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-cyan-500/50 transform hover:scale-105 active:scale-95 flex items-center group"
+            className="px-5 py-3 bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-600 text-white rounded-xl hover:from-cyan-600 hover:via-blue-600 hover:to-indigo-700 disabled:from-blue-300 disabled:to-indigo-400 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-cyan-500/50 transform hover:scale-105 active:scale-95 flex items-center group flex-shrink-0"
           >
             {loading ? (
               <span className="flex items-center gap-2">
