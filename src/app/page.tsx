@@ -127,7 +127,7 @@ export default function Home() {
             
             {/* 短小介绍线 */}
             <p className="text-xs text-gray-300 mb-2">
-              Search MCA-E prices, meter IDs, compare options, and more — built with GitHub Copilot and powered by Response API, Azure OpenAI GPT-5 and Azure WebApp
+              Find prices, meters, compare options, estimate costs and more — built with GitHub Copilot and powered by Azure AI Foundry, and Azure WebApp
             </p>
           </div>
         </div>

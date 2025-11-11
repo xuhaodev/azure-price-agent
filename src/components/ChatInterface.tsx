@@ -444,17 +444,23 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                                 remarkPlugins={[remarkGfm]}
                                 skipHtml={true}
                                 components={{
-                                  pre: (props) => <pre className="bg-gray-800 text-white p-3 rounded-md overflow-auto my-2 text-sm" {...props} />,
-                                  code: (props) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono" {...props} />,
-                                  p: (props) => <p className="text-sm md:text-base mb-2 last:mb-0" {...props} />,
+                                  pre: (props) => <pre className="bg-gray-800 text-white p-2.5 rounded-md overflow-auto my-1.5 text-xs" {...props} />,
+                                  code: (props) => <code className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono" {...props} />,
+                                  p: (props) => <p className="text-xs md:text-sm mb-1.5 last:mb-0" {...props} />,
+                                  h1: (props) => <h1 className="text-base font-bold mb-2" {...props} />,
+                                  h2: (props) => <h2 className="text-sm font-bold mb-1.5" {...props} />,
+                                  h3: (props) => <h3 className="text-sm font-semibold mb-1" {...props} />,
+                                  ul: (props) => <ul className="text-xs md:text-sm list-disc ml-4 mb-1.5" {...props} />,
+                                  ol: (props) => <ol className="text-xs md:text-sm list-decimal ml-4 mb-1.5" {...props} />,
+                                  li: (props) => <li className="mb-0.5" {...props} />,
                                   table: (props) => (
-                                    <div className="overflow-x-auto my-2">
-                                      <table className="min-w-full text-xs border-collapse border border-gray-300" {...props} />
+                                    <div className="overflow-x-auto my-1.5 rounded-lg shadow-sm">
+                                      <table className="w-full text-[10px] border-collapse border border-gray-300 bg-white" {...props} />
                                     </div>
                                   ),
-                                  thead: (props) => <thead className="bg-gray-200" {...props} />,
-                                  th: (props) => <th className="border border-gray-300 px-2 py-1 text-left font-semibold" {...props} />,
-                                  td: (props) => <td className="border border-gray-300 px-2 py-1" {...props} />
+                                  thead: (props) => <thead className="bg-gradient-to-r from-gray-100 to-gray-200" {...props} />,
+                                  th: (props) => <th className="border border-gray-300 px-2 py-1.5 text-left font-bold text-gray-700 whitespace-normal break-words" style={{ maxWidth: '200px', minWidth: '80px' }} {...props} />,
+                                  td: (props) => <td className="border border-gray-300 px-2 py-1.5 text-gray-600 whitespace-normal break-words align-top" style={{ maxWidth: '200px', minWidth: '80px' }} {...props} />
                                 }}
                               >
                                 {streamingResponse || msg.content}
@@ -518,17 +524,23 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                               remarkPlugins={[remarkGfm]}
                               skipHtml={true}
                               components={{
-                                pre: (props) => <pre className="bg-gray-800 text-white p-3 rounded-md overflow-auto my-2 text-sm" {...props} />,
-                                code: (props) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono" {...props} />,
-                                p: (props) => <p className="text-sm md:text-base mb-2 last:mb-0" {...props} />,
+                                pre: (props) => <pre className="bg-gray-800 text-white p-2.5 rounded-md overflow-auto my-1.5 text-xs" {...props} />,
+                                code: (props) => <code className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono" {...props} />,
+                                p: (props) => <p className="text-xs md:text-sm mb-1.5 last:mb-0" {...props} />,
+                                h1: (props) => <h1 className="text-base font-bold mb-2" {...props} />,
+                                h2: (props) => <h2 className="text-sm font-bold mb-1.5" {...props} />,
+                                h3: (props) => <h3 className="text-sm font-semibold mb-1" {...props} />,
+                                ul: (props) => <ul className="text-xs md:text-sm list-disc ml-4 mb-1.5" {...props} />,
+                                ol: (props) => <ol className="text-xs md:text-sm list-decimal ml-4 mb-1.5" {...props} />,
+                                li: (props) => <li className="mb-0.5" {...props} />,
                                 table: (props) => (
-                                  <div className="overflow-x-auto my-2">
-                                    <table className="min-w-full text-xs border-collapse border border-gray-300" {...props} />
+                                  <div className="overflow-x-auto my-1.5 rounded-lg shadow-sm">
+                                    <table className="w-full text-[10px] border-collapse border border-gray-300 bg-white" {...props} />
                                   </div>
                                 ),
-                                thead: (props) => <thead className="bg-gray-200" {...props} />,
-                                th: (props) => <th className="border border-gray-300 px-2 py-1 text-left font-semibold" {...props} />,
-                                td: (props) => <td className="border border-gray-300 px-2 py-1" {...props} />
+                                thead: (props) => <thead className="bg-gradient-to-r from-gray-100 to-gray-200" {...props} />,
+                                th: (props) => <th className="border border-gray-300 px-2 py-1.5 text-left font-bold text-gray-700 whitespace-normal break-words" style={{ maxWidth: '200px', minWidth: '80px' }} {...props} />,
+                                td: (props) => <td className="border border-gray-300 px-2 py-1.5 text-gray-600 whitespace-normal break-words align-top" style={{ maxWidth: '200px', minWidth: '80px' }} {...props} />
                               }}
                             >
                               {msg.content}
@@ -610,15 +622,23 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
             disabled={loading}
             className="text-xs bg-white/90 backdrop-blur-sm py-1 px-2 rounded-full border border-cyan-200/50 text-gray-600 hover:bg-gradient-to-r hover:from-cyan-50 hover:to-blue-50 hover:border-cyan-300 transition-all shadow-sm hover:shadow-md transform hover:scale-105"
           >
-            find cheapest D8s v4 in US
+            find cheapest D8s v4
           </button>
           <button 
             type="button" 
-            onClick={() => setInput("What is meter id for Azure managed redis M50 in West US 2?")}
+            onClick={() => setInput("What are meter id for Azure managed redis X series in West US 2?")}
             disabled={loading}
             className="text-xs bg-white/90 backdrop-blur-sm py-1 px-2 rounded-full border border-cyan-200/50 text-gray-600 hover:bg-gradient-to-r hover:from-cyan-50 hover:to-blue-50 hover:border-cyan-300 transition-all shadow-sm hover:shadow-md transform hover:scale-105"
           >
-            meter id of AMR M50 in West US 2
+            meter id of AMR X series
+          </button>
+                    <button 
+            type="button" 
+            onClick={() => setInput("What are the yearly costs of running 2 NC40 H100 VMs for inference in East US 2?")}
+            disabled={loading}
+            className="text-xs bg-white/90 backdrop-blur-sm py-1 px-2 rounded-full border border-cyan-200/50 text-gray-600 hover:bg-gradient-to-r hover:from-cyan-50 hover:to-blue-50 hover:border-cyan-300 transition-all shadow-sm hover:shadow-md transform hover:scale-105"
+          >
+            annual cost of NC H100 VMs
           </button>
         </div>
       </form>
