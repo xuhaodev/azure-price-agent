@@ -180,6 +180,61 @@ function extractOutputText(response: Response): string {
     return textChunks.join('');
 }
 
+function extractReasoningContent(response: Response): string {
+    // Try to extract reasoning content from response
+    // The Response object may contain reasoning_content field
+    const responseAny = response as unknown as { 
+        reasoning_content?: string | Array<{ type?: string; text?: string }>;
+        reasoning?: { summary?: string[] };
+    };
+    
+    if (typeof responseAny.reasoning_content === 'string') {
+        return responseAny.reasoning_content;
+    }
+    
+    if (Array.isArray(responseAny.reasoning_content)) {
+        return responseAny.reasoning_content
+            .filter(item => item?.type === 'text' && typeof item?.text === 'string')
+            .map(item => item.text)
+            .filter(Boolean)
+            .join('');
+    }
+
+    // Try to extract from reasoning.summary field
+    if (responseAny.reasoning?.summary && Array.isArray(responseAny.reasoning.summary)) {
+        const summaryText = responseAny.reasoning.summary
+            .filter(item => typeof item === 'string' && item.trim().length > 0)
+            .join('. ');
+        if (summaryText) return summaryText;
+    }
+
+    // Try to extract from output array if reasoning is embedded
+    if (Array.isArray(response.output)) {
+        const reasoningChunks = response.output.flatMap((item) => {
+            if (!('content' in item)) {
+                return [];
+            }
+
+            const content = (item as { content?: Array<{ type?: string; text?: string }> }).content;
+
+            if (!Array.isArray(content)) {
+                return [];
+            }
+
+            return content
+                .filter((contentItem) => contentItem?.type === 'reasoning' || contentItem?.type === 'thought')
+                .map((contentItem) => (typeof contentItem?.text === 'string' ? contentItem.text : ''))
+                .filter(Boolean);
+        });
+
+        if (reasoningChunks.length > 0) {
+            return reasoningChunks.join('');
+        }
+    }
+
+    return '';
+}
+
 async function executePricingWorkflow(
     prompt: string, 
     previousResponseId: string | undefined,
@@ -190,20 +245,52 @@ async function executePricingWorkflow(
     const processedCalls = new Set<string>();
     let latestPricingContext: PricingContext | undefined;
 
-    // Notify: Starting analysis
-    if (hooks.onStepUpdate) {
-        await hooks.onStepUpdate('🔍 Analyzing your query and planning data collection...');
-    }
-
     // Create response with previous_response_id to continue the same conversation thread
     // The agent will decide whether to call tools based on the query
+    if (hooks.onStepUpdate) {
+        await hooks.onStepUpdate('🧠 Agent is thinking...');
+    }
+
     let response: Response = await client.responses.create({
         model,
         input: buildConversation(prompt),
         tools: [PRICE_QUERY_TOOL],
-        reasoning: { effort: "low" },
+        reasoning: { effort: "medium",
+            "summary": "auto"
+         }, // Use medium effort to get more reasoning details
+        max_output_tokens: 4000, // Allow up to 4000 tokens for detailed analysis and recommendations
         ...(previousResponseId ? { previous_response_id: previousResponseId } : {})
     });
+
+    // Log response structure for debugging
+    console.log('[DEBUG] Response object keys:', Object.keys(response));
+    if (process.env.NODE_ENV === 'development') {
+        console.log('[DEBUG] Response output summary:', response.output?.map(item => ({ 
+            type: (item as {type?: string}).type, 
+            id: (item as {id?: string}).id?.substring(0, 20) 
+        })));
+    }
+    
+    // Extract and notify reasoning/thinking process
+    const reasoning = extractReasoningContent(response);
+    console.log('[DEBUG] Extracted reasoning length:', reasoning.length);
+    
+    if (reasoning && hooks.onStepUpdate) {
+        // Split reasoning into sentences or key points for better display
+        const reasoningLines = reasoning
+            .split(/[.!?]\s+/)
+            .filter(line => line.trim().length > 10)
+            .slice(0, 3); // Show first 3 key thoughts
+        
+        for (const thought of reasoningLines) {
+            if (thought.trim()) {
+                await hooks.onStepUpdate(`💭 Thinking: ${thought.trim()}`);
+            }
+        }
+    } else if (hooks.onStepUpdate) {
+        // Always show something even if no reasoning extracted - analyze the query
+        await hooks.onStepUpdate('💭 Parsing query requirements...');
+    }
 
     while (true) {
         const toolCalls = extractUnprocessedToolCalls(response, processedCalls);
@@ -214,7 +301,7 @@ async function executePricingWorkflow(
 
         // Notify: Found tool calls
         if (hooks.onStepUpdate && toolCalls.length > 0) {
-            await hooks.onStepUpdate(`📋 Query plan created: ${toolCalls.length} pricing ${toolCalls.length > 1 ? 'queries' : 'query'} to execute`);
+            await hooks.onStepUpdate(`✅ Decision: Execute ${toolCalls.length} pricing ${toolCalls.length > 1 ? 'queries' : 'query'}`);
         }
 
         const toolOutputs: ResponseInput = [];
@@ -222,18 +309,20 @@ async function executePricingWorkflow(
         for (let i = 0; i < toolCalls.length; i++) {
             const toolCall = toolCalls[i];
             const queryFilter = parseQueryFilter(toolCall);
-
-            // Notify: Starting tool call
-            if (hooks.onToolCallStart) {
-                await hooks.onToolCallStart({
-                    name: toolCall.name,
-                    arguments: toolCall.arguments || '{}'
-                });
-            }
-
-            // Notify progress
+            
+            // Show the actual query being executed
             if (hooks.onStepUpdate) {
-                await hooks.onStepUpdate(`⏳ Executing query ${i + 1}/${toolCalls.length}: Fetching pricing data...`);
+                // Extract key parts from the query for display
+                const regionMatch = queryFilter.match(/armRegionName eq '([^']+)'/);
+                const skuMatch = queryFilter.match(/contains\(armSkuName, '([^']+)'\)/);
+                const serviceMatch = queryFilter.match(/contains\(serviceName, '([^']+)'\)/);
+                
+                let queryDesc = `Query ${i + 1}/${toolCalls.length}`;
+                if (serviceMatch) queryDesc += ` - ${serviceMatch[1]}`;
+                if (skuMatch) queryDesc += ` ${skuMatch[1]}`;
+                if (regionMatch) queryDesc += ` in ${regionMatch[1]}`;
+                
+                await hooks.onStepUpdate(`🔎 ${queryDesc}`);
             }
 
             const priceData = await fetchPrices(queryFilter);
@@ -243,17 +332,21 @@ async function executePricingWorkflow(
                 filter: queryFilter
             };
 
-            // Notify: Tool call complete
-            if (hooks.onToolCallComplete) {
-                await hooks.onToolCallComplete({
-                    name: toolCall.name,
-                    resultCount: priceData.Items.length
-                });
-            }
-
-            // Notify progress
+            // Notify progress with more details
             if (hooks.onStepUpdate) {
-                await hooks.onStepUpdate(`✅ Query ${i + 1}/${toolCalls.length} complete: Retrieved ${priceData.Items.length} pricing records`);
+                if (priceData.Items.length > 0) {
+                    // Show price range if available
+                    const prices = priceData.Items.map(item => item.retailPrice).filter(p => typeof p === 'number');
+                    if (prices.length > 0) {
+                        const minPrice = Math.min(...prices);
+                        const maxPrice = Math.max(...prices);
+                        await hooks.onStepUpdate(`✅ Query ${i + 1}/${toolCalls.length}: Found ${priceData.Items.length} results (${minPrice === maxPrice ? `$${minPrice.toFixed(4)}` : `$${minPrice.toFixed(4)} - $${maxPrice.toFixed(4)}`})`);
+                    } else {
+                        await hooks.onStepUpdate(`✅ Query ${i + 1}/${toolCalls.length}: Found ${priceData.Items.length} results`);
+                    }
+                } else {
+                    await hooks.onStepUpdate(`⚠️ Query ${i + 1}/${toolCalls.length}: No results found`);
+                }
             }
 
             if (hooks.onPriceData) {
@@ -277,23 +370,61 @@ async function executePricingWorkflow(
 
         // Notify: Processing results
         if (hooks.onStepUpdate) {
-            await hooks.onStepUpdate('🤔 Analyzing pricing data and preparing recommendations...');
+            await hooks.onStepUpdate('🧠 Analyzing collected data...');
         }
 
         response = await client.responses.create({
             model,
             previous_response_id: response.id,
             input: toolOutputs,
-            reasoning: { effort: "low" }
+            reasoning: { effort: "medium",
+                "summary": "auto"
+             }, // Use medium effort to get reasoning details
+            max_output_tokens: 4000 // Allow sufficient tokens for comprehensive analysis
         });
+
+        console.log('[DEBUG] Analysis response keys:', Object.keys(response));
+        if (process.env.NODE_ENV === 'development') {
+            console.log('[DEBUG] Analysis output summary:', response.output?.map(item => ({ 
+                type: (item as {type?: string}).type,
+                id: (item as {id?: string}).id?.substring(0, 20)
+            })));
+        }
+
+        // Extract and notify reasoning after data analysis
+        const analysisReasoning = extractReasoningContent(response);
+        console.log('[DEBUG] Analysis reasoning length:', analysisReasoning.length);
+        
+        if (analysisReasoning && hooks.onStepUpdate) {
+            const reasoningLines = analysisReasoning
+                .split(/[.!?]\s+/)
+                .filter(line => line.trim().length > 10)
+                .slice(0, 3); // Show first 3 analysis thoughts
+            
+            for (const thought of reasoningLines) {
+                if (thought.trim()) {
+                    await hooks.onStepUpdate(`💡 Analysis: ${thought.trim()}`);
+                }
+            }
+        } else if (hooks.onStepUpdate) {
+            // Show generic analysis steps if no reasoning extracted
+            if (latestPricingContext && latestPricingContext.Items.length > 0) {
+                await hooks.onStepUpdate(`💡 Comparing ${latestPricingContext.Items.length} pricing options...`);
+                await hooks.onStepUpdate('💡 Identifying optimal choices and trade-offs...');
+            }
+        }
     }
 
     // Notify: Finalizing
     if (hooks.onStepUpdate) {
-        await hooks.onStepUpdate('✨ Finalizing response...');
+        await hooks.onStepUpdate('📝 Preparing recommendations...');
     }
 
     const aiResponse = extractOutputText(response).trim();
+    
+    if (hooks.onStepUpdate) {
+        await hooks.onStepUpdate('✨ Response ready');
+    }
 
     return {
         aiResponse,

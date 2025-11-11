@@ -36,13 +36,15 @@ export default function Home() {
 
   const handleResults = ({items, filter, append = false}: {items: PricingItem[], filter: string, append?: boolean}) => {
     if (append) {
-      // Append mode: accumulate results in same session
+      // Append mode: accumulate results from multiple tool calls in same session
+      // Agent may call query tool multiple times, all results should be accumulated
       setResults(prev => [...prev, ...items]);
+      console.log('OData Query Filter:', filter, `(appended ${items.length} items, total: ${results.length + items.length})`);
     } else {
-      // Replace mode: new session starts, clear and set new data
+      // Replace mode: new session starts (Clear button clicked), clear and set new data
       setResults(items);
+      console.log('OData Query Filter:', filter, `(replaced with ${items.length} items)`);
     }
-    console.log('OData Query Filter:', filter, `(${append ? 'appended' : 'replaced'} ${items.length} items)`);
   };
 
   return (

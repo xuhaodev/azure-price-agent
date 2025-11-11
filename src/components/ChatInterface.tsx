@@ -192,15 +192,16 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                   break;
 
                 case 'price_data':
-                  // Received price data from tool call - append to table
-                  // In the same session, always append; only clear on new session (Clear button)
+                  // Received price data from tool call - ALWAYS append in same session
+                  // Multiple tool calls in same session should accumulate all data
+                  // Only clear on new session (Clear button resets sessionResponseId to null)
                   priceDataReceived = true;
                   
                   onResults({
                     items: data.data.Items,
                     filter: data.data.filter,
                     aiResponse: undefined,
-                    append: sessionResponseId !== null // Append if session exists, replace if new session
+                    append: true // Always append - table only clears when Clear button is clicked
                   });
                   break;
                   
