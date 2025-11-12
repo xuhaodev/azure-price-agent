@@ -749,7 +749,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
         <div className="mt-2 flex flex-wrap gap-2">
           <button 
             type="button" 
-            onClick={() => setInput("Which US Azure region offers the lowest price for the Standard D8s v4 VM?")}
+            onClick={() => setInput("Which US region offers the lowest price for the D8s v4 VM?")}
             disabled={loading}
             className="text-xs bg-white/90 backdrop-blur-sm py-1 px-2 rounded-full border border-cyan-200/50 text-gray-600 hover:bg-gradient-to-r hover:from-cyan-50 hover:to-blue-50 hover:border-cyan-300 transition-all shadow-sm hover:shadow-md transform hover:scale-105"
           >
@@ -757,11 +757,11 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
           </button>
           <button 
             type="button" 
-            onClick={() => setInput("What are meter id for Azure managed redis X series in West US 2?")}
+            onClick={() => setInput("what is gpt image 1 price in east us 2??")}
             disabled={loading}
             className="text-xs bg-white/90 backdrop-blur-sm py-1 px-2 rounded-full border border-cyan-200/50 text-gray-600 hover:bg-gradient-to-r hover:from-cyan-50 hover:to-blue-50 hover:border-cyan-300 transition-all shadow-sm hover:shadow-md transform hover:scale-105"
           >
-            meter id of AMR X series
+            price of GPT-Image-1
           </button>
                     <button 
             type="button" 

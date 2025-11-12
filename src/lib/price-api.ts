@@ -12,16 +12,16 @@ import { azureRegions } from './azure-regions';
 const PRICE_QUERY_TOOL = {
     type: 'function',
     name: 'odata_query',
-    // description: 'Retrieve data from Azure Retail Prices API based on OData query conditions, return merged JSON record list, only use armRegionName and armSkuName for fuzzy queries.',
-    description: "Retrieve retail pricing information for Azure services, with filters by service name, region, currency, SKU, or price type. Useful for cost analysis and comparing Azure rates programmatically.",
+    description: 'Retrieve data from Azure Retail Prices API based on OData query conditions, return merged JSON record list, e.g. use armRegionName and armSkuName for fuzzy queries.',
+    //description: "Retrieve retail pricing information for Azure services, with filters by service name, region, currency, SKU, or price type. Useful for cost analysis and comparing Azure rates programmatically.",
   
     parameters: {
         type: 'object',
         properties: {
             query: {
                 type: 'string',
-                //description: "OData query conditions, e.g.: armRegionName eq 'southcentralus' and contains(armSkuName, 'Redis')"
-                description: "OData-style filter string to narrow results. Example: serviceName eq 'Virtual Machines' and armRegionName eq 'eastus'"
+                description: "OData query conditions, best to use fuzzy queries, e.g.: armRegionName eq 'southcentralus' and contains(armSkuName, 'Redis')"
+                //description: "OData-style filter string to narrow results. Example: serviceName eq 'Virtual Machines' and armRegionName eq 'eastus'"
             }
         },
         required: ['query'],
@@ -325,34 +325,39 @@ async function executePricingWorkflow(
                 await hooks.onStepUpdate(`🔎 ${queryDesc}`);
             }
 
-            const priceData = await fetchPrices(queryFilter);
+            // Use retry mechanism with query broadening
+            const priceResult = await fetchPricesWithRetry(queryFilter, {
+                onStepUpdate: hooks.onStepUpdate
+            });
 
             latestPricingContext = {
-                Items: priceData.Items,
-                filter: queryFilter
+                Items: priceResult.Items,
+                filter: priceResult.finalFilter // Use the final filter that actually returned results
             };
 
             // Notify progress with more details
             if (hooks.onStepUpdate) {
-                if (priceData.Items.length > 0) {
+                if (priceResult.Items.length > 0) {
                     // Show price range if available
-                    const prices = priceData.Items.map(item => item.retailPrice).filter(p => typeof p === 'number');
+                    const prices = priceResult.Items.map(item => item.retailPrice).filter(p => typeof p === 'number');
                     if (prices.length > 0) {
                         const minPrice = Math.min(...prices);
                         const maxPrice = Math.max(...prices);
-                        await hooks.onStepUpdate(`✅ Query ${i + 1}/${toolCalls.length}: Found ${priceData.Items.length} results (${minPrice === maxPrice ? `$${minPrice.toFixed(4)}` : `$${minPrice.toFixed(4)} - $${maxPrice.toFixed(4)}`})`);
+                        const retryInfo = priceResult.attemptCount > 1 ? ` (after ${priceResult.attemptCount} attempts)` : '';
+                        await hooks.onStepUpdate(`✅ Query ${i + 1}/${toolCalls.length}: Found ${priceResult.Items.length} results${retryInfo} (${minPrice === maxPrice ? `$${minPrice.toFixed(4)}` : `$${minPrice.toFixed(4)} - $${maxPrice.toFixed(4)}`})`);
                     } else {
-                        await hooks.onStepUpdate(`✅ Query ${i + 1}/${toolCalls.length}: Found ${priceData.Items.length} results`);
+                        const retryInfo = priceResult.attemptCount > 1 ? ` (after ${priceResult.attemptCount} attempts)` : '';
+                        await hooks.onStepUpdate(`✅ Query ${i + 1}/${toolCalls.length}: Found ${priceResult.Items.length} results${retryInfo}`);
                     }
                 } else {
-                    await hooks.onStepUpdate(`⚠️ Query ${i + 1}/${toolCalls.length}: No results found`);
+                    await hooks.onStepUpdate(`⚠️ Query ${i + 1}/${toolCalls.length}: No results found after ${priceResult.attemptCount} attempts`);
                 }
             }
 
             if (hooks.onPriceData) {
                 await hooks.onPriceData({
                     ...latestPricingContext,
-                    totalCount: priceData.Items.length
+                    totalCount: priceResult.Items.length
                 });
             }
 
@@ -360,8 +365,10 @@ async function executePricingWorkflow(
                 type: 'function_call_output',
                 call_id: toolCall.call_id,
                 output: JSON.stringify({
-                    Items: priceData.Items,
-                    filter: queryFilter
+                    Items: priceResult.Items,
+                    filter: priceResult.finalFilter,
+                    attemptCount: priceResult.attemptCount,
+                    originalFilter: queryFilter
                 })
             });
 
@@ -535,6 +542,74 @@ export async function queryPricingWithStreamingResponse(
     });
 }
 
+/**
+ * Broaden a query by removing the last keyword from productName or meterName contains clauses
+ * Returns null if the query cannot be broadened further
+ */
+function broadenQuery(filter: string): string | null {
+    // Extract region part (keep it unchanged)
+    const regionMatch = filter.match(/armRegionName eq '[^']+'/);
+    const regionPart = regionMatch ? regionMatch[0] : '';
+    
+    // Extract all contains clauses
+    const containsPattern = /contains\(tolower\((productName|meterName)\),\s*'([^']+)'\)/gi;
+    const matches = Array.from(filter.matchAll(containsPattern));
+    
+    if (matches.length === 0) {
+        return null; // Cannot broaden further
+    }
+    
+    // Group by field name (productName vs meterName)
+    const productNameClauses: string[] = [];
+    const meterNameClauses: string[] = [];
+    
+    for (const match of matches) {
+        const fieldName = match[1].toLowerCase();
+        const keyword = match[2];
+        if (fieldName === 'productname') {
+            productNameClauses.push(keyword);
+        } else if (fieldName === 'metername') {
+            meterNameClauses.push(keyword);
+        }
+    }
+    
+    // Try to remove last meterName keyword first, then productName
+    let newClauses: string[] = [];
+    
+    if (meterNameClauses.length > 1) {
+        // Remove last meterName keyword, keep productName
+        const shortenedMeterName = meterNameClauses.slice(0, -1);
+        newClauses = [
+            ...productNameClauses.map(k => `contains(tolower(productName), '${k}')`),
+            ...shortenedMeterName.map(k => `contains(tolower(meterName), '${k}')`)
+        ];
+    } else if (meterNameClauses.length === 1) {
+        if (productNameClauses.length > 0) {
+            // Remove productName, keep the single meterName keyword
+            newClauses = meterNameClauses.map(k => `contains(tolower(meterName), '${k}')`);
+        } else {
+            // Only one meterName keyword and no productName, cannot broaden further
+            return null;
+        }
+    } else if (productNameClauses.length > 1) {
+        // Only productName clauses exist (no meterName), remove last one
+        const shortenedProductName = productNameClauses.slice(0, -1);
+        newClauses = shortenedProductName.map(k => `contains(tolower(productName), '${k}')`);
+    } else {
+        // Only one clause remaining (single productName or no clauses), cannot broaden
+        return null;
+    }
+    
+    // Reconstruct query
+    const parts = [];
+    if (regionPart) {
+        parts.push(regionPart);
+    }
+    parts.push(...newClauses);
+    
+    return parts.join(' and ');
+}
+
 export async function fetchPrices(filter: string) {
     const api_url = "https://prices.azure.com/api/retail/prices?api-version=2023-01-01-preview";
     let allItems: PricingItem[] = [];
@@ -566,6 +641,61 @@ export async function fetchPrices(filter: string) {
     }
 
     return { Items: allItems };
+}
+
+/**
+ * Fetch prices with automatic retry and query broadening
+ * If initial query returns 0 results, will retry up to 3 times with progressively broader queries
+ */
+async function fetchPricesWithRetry(
+    initialFilter: string,
+    hooks?: { onStepUpdate?: (step: string) => void | Promise<void> }
+): Promise<{ Items: PricingItem[], finalFilter: string, attemptCount: number }> {
+    const MAX_ATTEMPTS = 3;
+    let currentFilter = initialFilter;
+    let attemptCount = 0;
+    
+    while (attemptCount < MAX_ATTEMPTS) {
+        attemptCount++;
+        
+        if (attemptCount > 1 && hooks?.onStepUpdate) {
+            await hooks.onStepUpdate(`🔄 Retry attempt ${attemptCount}/${MAX_ATTEMPTS}: Broadening query scope...`);
+        }
+        
+        const result = await fetchPrices(currentFilter);
+        
+        if (result.Items.length > 0) {
+            // Success - found results
+            if (attemptCount > 1 && hooks?.onStepUpdate) {
+                await hooks.onStepUpdate(`✅ Found ${result.Items.length} results with broader query`);
+            }
+            return {
+                Items: result.Items,
+                finalFilter: currentFilter,
+                attemptCount
+            };
+        }
+        
+        // No results - try to broaden the query
+        if (attemptCount < MAX_ATTEMPTS) {
+            const broadenedFilter = broadenQuery(currentFilter);
+            if (!broadenedFilter) {
+                // Cannot broaden further
+                if (hooks?.onStepUpdate) {
+                    await hooks.onStepUpdate(`⚠️ Cannot broaden query further - no results found`);
+                }
+                break;
+            }
+            currentFilter = broadenedFilter;
+        }
+    }
+    
+    // All attempts exhausted or cannot broaden further
+    return {
+        Items: [],
+        finalFilter: currentFilter,
+        attemptCount
+    };
 }
 
 // The old convertJsonToFilter function is no longer needed, use OData queries generated by LLM directly

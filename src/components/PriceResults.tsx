@@ -104,9 +104,12 @@ export default function PriceResults({ items, height }: { items: PricingItem[], 
     
     // Prepare CSV rows
     const rows = sortedAndFilteredItems.map(item => {
-      const savingsPlanText = item.savingsPlan && Array.isArray(item.savingsPlan) && item.savingsPlan.length > 0
-        ? item.savingsPlan.map(plan => `${plan.term}: $${plan.retailPrice}`).join('; ')
-        : '-';
+      let savingsPlanText = '-';
+      if (item.type === 'Reservation') {
+        savingsPlanText = 'Reservation';
+      } else if (item.savingsPlan && Array.isArray(item.savingsPlan) && item.savingsPlan.length > 0) {
+        savingsPlanText = item.savingsPlan.map(plan => `${plan.term}: $${plan.retailPrice}`).join('; ');
+      }
       
       return [
         item.armSkuName || '',
@@ -309,7 +312,9 @@ export default function PriceResults({ items, height }: { items: PricingItem[], 
                   </div>
                 </td>
                 <td className="px-2 py-2 text-[9px] text-gray-700">
-                  {item.savingsPlan && Array.isArray(item.savingsPlan) && item.savingsPlan.length > 0 ? (
+                  {item.type === 'Reservation' ? (
+                    <span className="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-700 font-semibold border border-purple-300/30 text-[9px] inline-block">Reservation</span>
+                  ) : item.savingsPlan && Array.isArray(item.savingsPlan) && item.savingsPlan.length > 0 ? (
                     <div className="flex flex-col space-y-0.5">
                       {item.savingsPlan.map((plan, idx) => (
                         <div key={idx} className="text-[9px] whitespace-nowrap flex items-center gap-0.5">
