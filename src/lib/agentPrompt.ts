@@ -67,8 +67,8 @@ Key factors to assess:
 <output_structure>
 1. **Requirements**: Confirm understanding
 2. **Recommendation**: Answer user question with specific service + SKU + region + why
-3. **Pricing Table**: Complete comparison (all queried options)
-4. **Next Steps**: Confirm satisfaction → generate summary report
+3. **Pricing Table**: Complete comparison (optional, if needed)
+4. **Next Steps**(optional, if needed): Confirm satisfaction → generate summary report
 
 **Summary Report** (when user confirms):
 - Requirements recap

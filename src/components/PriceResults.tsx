@@ -14,6 +14,15 @@ export default function PriceResults({ items, height }: { items: PricingItem[], 
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const previousItemsLengthRef = useRef(0);
 
+  // Add debug logging
+  useEffect(() => {
+    console.log('[PriceResults] Received items:', {
+      count: items.length,
+      firstItem: items[0],
+      allSKUs: items.map(i => i.armSkuName).slice(0, 5) // First 5 SKUs
+    });
+  }, [items]);
+
   // Sort and filter items - move useMemo before conditional check
   const sortedAndFilteredItems = useMemo(() => {
     if (!items.length) return [];

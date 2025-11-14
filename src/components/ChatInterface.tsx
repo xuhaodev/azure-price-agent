@@ -281,12 +281,27 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                   // Only clear on new session (Clear button resets sessionResponseId to null)
                   priceDataReceived = true;
                   
-                  onResults({
-                    items: data.data.Items,
-                    filter: data.data.filter,
-                    aiResponse: undefined,
-                    append: true // Always append - table only clears when Clear button is clicked
+                  console.log('[ChatInterface] Received price_data:', {
+                    rawData: data,
+                    itemCount: data.data?.Items?.length || 0,
+                    filter: data.data?.filter,
+                    firstItem: data.data?.Items?.[0]
                   });
+                  
+                  // Ensure Items is an array before passing to onResults
+                  const items = Array.isArray(data.data?.Items) ? data.data.Items : [];
+                  const filter = data.data?.filter || '';
+                  
+                  if (items.length > 0) {
+                    onResults({
+                      items,
+                      filter,
+                      aiResponse: undefined,
+                      append: true // Always append - table only clears when Clear button is clicked
+                    });
+                  } else {
+                    console.warn('[ChatInterface] Received price_data with no items');
+                  }
                   break;
                   
                 case 'ai_response_chunk':

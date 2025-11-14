@@ -35,15 +35,33 @@ export default function Home() {
   }, []);
 
   const handleResults = ({items, filter, append = false}: {items: PricingItem[], filter: string, append?: boolean}) => {
+    // Ensure items is an array
+    const safeItems = Array.isArray(items) ? items : [];
+    
+    console.log('[Page] handleResults called:', {
+      itemCount: safeItems.length,
+      append,
+      filter
+    });
+    
     if (append) {
       // Append mode: accumulate results from multiple tool calls in same session
       // Agent may call query tool multiple times, all results should be accumulated
-      setResults(prev => [...prev, ...items]);
-      console.log('OData Query Filter:', filter, `(appended ${items.length} items, total: ${results.length + items.length})`);
+      setResults(prev => {
+        const newResults = [...prev, ...safeItems];
+        console.log('OData Query Filter:', filter, `(appended ${safeItems.length} items, total: ${newResults.length})`);
+        if (safeItems.length > 0) {
+          console.log('Sample item:', safeItems[0]); // Log first item for debugging
+        }
+        return newResults;
+      });
     } else {
       // Replace mode: new session starts (Clear button clicked), clear and set new data
-      setResults(items);
-      console.log('OData Query Filter:', filter, `(replaced with ${items.length} items)`);
+      setResults(safeItems);
+      console.log('OData Query Filter:', filter, `(replaced with ${safeItems.length} items)`);
+      if (safeItems.length > 0) {
+        console.log('Sample item:', safeItems[0]); // Log first item for debugging
+      }
     }
   };
 

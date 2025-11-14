@@ -152,32 +152,56 @@ function parseQueryFilter(toolCall: ResponseFunctionToolCallItem): string {
 }
 
 function extractOutputText(response: Response): string {
+    console.log('[extractOutputText] Starting extraction...');
+    
     if (typeof response?.output_text === 'string') {
+        console.log('[extractOutputText] Found output_text:', response.output_text.length, 'chars');
         return response.output_text;
     }
 
     if (!Array.isArray(response?.output)) {
+        console.log('[extractOutputText] No output array found');
         return '';
     }
 
-    const textChunks = response.output.flatMap((item) => {
+    console.log('[extractOutputText] Processing output array with', response.output.length, 'items');
+    
+    const textChunks = response.output.flatMap((item, idx) => {
         if (!('content' in item)) {
+            console.log(`[extractOutputText] Item ${idx}: no content field`);
             return [];
         }
 
         const content = (item as { content?: Array<{ type?: string; text?: string }> }).content;
 
         if (!Array.isArray(content)) {
+            console.log(`[extractOutputText] Item ${idx}: content is not array`);
             return [];
         }
 
-        return content
-            .filter((contentItem) => contentItem?.type === 'output_text' || contentItem?.type === 'text')
+        console.log(`[extractOutputText] Item ${idx}: content array with ${content.length} items`);
+        
+        const texts = content
+            .filter((contentItem) => {
+                const isMatch = contentItem?.type === 'output_text' || contentItem?.type === 'text';
+                if (!isMatch && contentItem?.type) {
+                    console.log(`[extractOutputText] Item ${idx}: skipping type '${contentItem.type}'`);
+                }
+                return isMatch;
+            })
             .map((contentItem) => (typeof contentItem?.text === 'string' ? contentItem.text : ''))
             .filter(Boolean);
+        
+        if (texts.length > 0) {
+            console.log(`[extractOutputText] Item ${idx}: extracted ${texts.length} text chunks, total length: ${texts.join('').length}`);
+        }
+        
+        return texts;
     });
 
-    return textChunks.join('');
+    const result = textChunks.join('');
+    console.log('[extractOutputText] Final result length:', result.length);
+    return result;
 }
 
 function extractReasoningContent(response: Response): string {
@@ -258,7 +282,7 @@ async function executePricingWorkflow(
         reasoning: { effort: "medium",
             "summary": "auto"
          }, // Use medium effort to get more reasoning details
-        max_output_tokens: 4000, // Allow up to 4000 tokens for detailed analysis and recommendations
+        max_output_tokens: 2000, // Allow up to 4000 tokens for detailed analysis and recommendations
         ...(previousResponseId ? { previous_response_id: previousResponseId } : {})
     });
 
@@ -310,6 +334,12 @@ async function executePricingWorkflow(
             const toolCall = toolCalls[i];
             const queryFilter = parseQueryFilter(toolCall);
             
+            // Log OData query to server terminal for diagnostics
+            console.log('\n' + '='.repeat(80));
+            console.log(`[Agent OData Query ${i + 1}/${toolCalls.length}]`);
+            console.log('Filter:', queryFilter);
+            console.log('='.repeat(80) + '\n');
+            
             // Show the actual query being executed
             if (hooks.onStepUpdate) {
                 // Extract key parts from the query for display
@@ -329,6 +359,13 @@ async function executePricingWorkflow(
             const priceResult = await fetchPricesWithRetry(queryFilter, {
                 onStepUpdate: hooks.onStepUpdate
             });
+
+            // Log query result to terminal
+            console.log(`[Query Result] Found ${priceResult.Items.length} items`);
+            if (priceResult.attemptCount > 1) {
+                console.log(`[Query Broadening] Required ${priceResult.attemptCount} attempts`);
+                console.log(`[Final Filter] ${priceResult.finalFilter}`);
+            }
 
             latestPricingContext = {
                 Items: priceResult.Items,
@@ -387,7 +424,7 @@ async function executePricingWorkflow(
             reasoning: { effort: "medium",
                 "summary": "auto"
              }, // Use medium effort to get reasoning details
-            max_output_tokens: 4000 // Allow sufficient tokens for comprehensive analysis
+            max_output_tokens: 2000 // Allow sufficient tokens for comprehensive analysis
         });
 
         console.log('[DEBUG] Analysis response keys:', Object.keys(response));
@@ -428,6 +465,38 @@ async function executePricingWorkflow(
     }
 
     const aiResponse = extractOutputText(response).trim();
+    
+    // Diagnostic logging for final response
+    console.log('\n' + '='.repeat(80));
+    console.log('[Final AI Response Diagnostics]');
+    console.log('Response ID:', response.id);
+    console.log('Has output_text:', typeof response.output_text === 'string');
+    if (typeof response.output_text === 'string') {
+        console.log('output_text length:', response.output_text.length);
+        console.log('output_text preview:', response.output_text.substring(0, 200));
+    }
+    console.log('Has output array:', Array.isArray(response.output));
+    if (Array.isArray(response.output)) {
+        console.log('Output array length:', response.output.length);
+        console.log('Output types:', response.output.map(item => (item as {type?: string}).type));
+        // Log content structure
+        response.output.forEach((item, idx) => {
+            if ('content' in item) {
+                const content = (item as { content?: Array<{ type?: string; text?: string }> }).content;
+                if (Array.isArray(content)) {
+                    console.log(`  Item ${idx} content types:`, content.map(c => c?.type));
+                    content.forEach((c, cidx) => {
+                        if (c?.text) {
+                            console.log(`    Content ${cidx} text preview:`, c.text.substring(0, 100));
+                        }
+                    });
+                }
+            }
+        });
+    }
+    console.log('Extracted aiResponse length:', aiResponse.length);
+    console.log('Extracted aiResponse preview:', aiResponse.substring(0, 300));
+    console.log('='.repeat(80) + '\n');
     
     if (hooks.onStepUpdate) {
         await hooks.onStepUpdate('✨ Response ready');
@@ -500,7 +569,12 @@ export async function queryPricingWithStreamingResponse(
                 };
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify(responseIdPayload)}\n\n`));
 
+                // Log streaming response handling
+                console.log('[Streaming] aiResponse length:', aiResponse?.length || 0);
+                console.log('[Streaming] has pricingContext:', !!pricingContext);
+
                 if (!pricingContext) {
+                    console.log('[Streaming] No pricing context - sending direct_response');
                     const directPayload = {
                         type: 'direct_response',
                         data: { content: aiResponse || 'No response generated' }
@@ -511,13 +585,17 @@ export async function queryPricingWithStreamingResponse(
                 }
 
                 if (aiResponse) {
+                    console.log('[Streaming] Sending ai_response_chunk with', aiResponse.length, 'chars');
                     const chunkPayload = {
                         type: 'ai_response_chunk',
                         data: { content: aiResponse }
                     };
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunkPayload)}\n\n`));
+                } else {
+                    console.warn('[Streaming] WARNING: aiResponse is empty but pricingContext exists!');
                 }
 
+                console.log('[Streaming] Sending ai_response_complete');
                 const completionPayload = {
                     type: 'ai_response_complete',
                     data: {
@@ -658,8 +736,13 @@ async function fetchPricesWithRetry(
     while (attemptCount < MAX_ATTEMPTS) {
         attemptCount++;
         
-        if (attemptCount > 1 && hooks?.onStepUpdate) {
-            await hooks.onStepUpdate(`🔄 Retry attempt ${attemptCount}/${MAX_ATTEMPTS}: Broadening query scope...`);
+        if (attemptCount > 1) {
+            console.log(`[Query Retry ${attemptCount}/${MAX_ATTEMPTS}] Broadening query...`);
+            console.log('[Broadened Filter]', currentFilter);
+            
+            if (hooks?.onStepUpdate) {
+                await hooks.onStepUpdate(`🔄 Retry attempt ${attemptCount}/${MAX_ATTEMPTS}: Broadening query scope...`);
+            }
         }
         
         const result = await fetchPrices(currentFilter);
