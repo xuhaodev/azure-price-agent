@@ -15,12 +15,14 @@ export async function POST(request: NextRequest) {
         // Agent will decide whether to call tools based on the query context
         const stream = await queryPricingWithStreamingResponse(prompt, previous_response_id || undefined);
         
-        // Return streaming response
+        // Return streaming response with Azure Web App compatible headers
         return new Response(stream, {
             headers: {
                 'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache',
+                'Cache-Control': 'no-cache, no-transform',
                 'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no', // Disable nginx buffering
+                'Content-Encoding': 'none', // Prevent compression that can cause buffering
             },
         });
     } catch (error) {

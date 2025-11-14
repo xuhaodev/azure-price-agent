@@ -154,11 +154,13 @@ function parseQueryFilter(toolCall: ResponseFunctionToolCallItem): string {
 function extractOutputText(response: Response): string {
     console.log('[extractOutputText] Starting extraction...');
     
+    // First try: output_text field (simple string)
     if (typeof response?.output_text === 'string') {
         console.log('[extractOutputText] Found output_text:', response.output_text.length, 'chars');
         return response.output_text;
     }
 
+    // Second try: output array
     if (!Array.isArray(response?.output)) {
         console.log('[extractOutputText] No output array found');
         return '';
@@ -167,6 +169,15 @@ function extractOutputText(response: Response): string {
     console.log('[extractOutputText] Processing output array with', response.output.length, 'items');
     
     const textChunks = response.output.flatMap((item, idx) => {
+        const itemType = (item as {type?: string}).type;
+        console.log(`[extractOutputText] Item ${idx}: type='${itemType}'`);
+        
+        // Skip function calls and their outputs
+        if (itemType === 'function_call' || itemType === 'function_call_output') {
+            console.log(`[extractOutputText] Item ${idx}: skipping ${itemType}`);
+            return [];
+        }
+        
         if (!('content' in item)) {
             console.log(`[extractOutputText] Item ${idx}: no content field`);
             return [];
@@ -181,19 +192,33 @@ function extractOutputText(response: Response): string {
 
         console.log(`[extractOutputText] Item ${idx}: content array with ${content.length} items`);
         
+        // Try to extract ANY text content, being more permissive
         const texts = content
-            .filter((contentItem) => {
-                const isMatch = contentItem?.type === 'output_text' || contentItem?.type === 'text';
-                if (!isMatch && contentItem?.type) {
-                    console.log(`[extractOutputText] Item ${idx}: skipping type '${contentItem.type}'`);
+            .map((contentItem, cidx) => {
+                const cType = contentItem?.type;
+                const cText = contentItem?.text;
+                console.log(`[extractOutputText] Item ${idx}, Content ${cidx}: type='${cType}', hasText=${!!cText}, textLength=${cText?.length || 0}`);
+                
+                // Accept multiple content types that contain text
+                if (cType === 'output_text' || cType === 'text' || cType === 'message') {
+                    return typeof cText === 'string' ? cText : '';
                 }
-                return isMatch;
+                
+                // Also try to extract text even if type is not recognized but text exists
+                if (!cType && typeof cText === 'string' && cText.length > 0) {
+                    console.log(`[extractOutputText] Item ${idx}, Content ${cidx}: Accepting text without type`);
+                    return cText;
+                }
+                
+                return '';
             })
-            .map((contentItem) => (typeof contentItem?.text === 'string' ? contentItem.text : ''))
             .filter(Boolean);
         
         if (texts.length > 0) {
-            console.log(`[extractOutputText] Item ${idx}: extracted ${texts.length} text chunks, total length: ${texts.join('').length}`);
+            const totalLength = texts.join('').length;
+            console.log(`[extractOutputText] Item ${idx}: extracted ${texts.length} text chunks, total length: ${totalLength}`);
+        } else {
+            console.log(`[extractOutputText] Item ${idx}: no text extracted`);
         }
         
         return texts;
@@ -201,6 +226,17 @@ function extractOutputText(response: Response): string {
 
     const result = textChunks.join('');
     console.log('[extractOutputText] Final result length:', result.length);
+    
+    if (result.length === 0) {
+        console.error('[extractOutputText] ERROR: Failed to extract any text from response');
+        console.error('[extractOutputText] Response structure:', JSON.stringify({
+            hasOutputText: typeof response?.output_text === 'string',
+            hasOutput: Array.isArray(response?.output),
+            outputLength: response?.output?.length,
+            outputTypes: response?.output?.map((item: { type?: string }) => item?.type)
+        }, null, 2));
+    }
+    
     return result;
 }
 
@@ -478,24 +514,35 @@ async function executePricingWorkflow(
     console.log('Has output array:', Array.isArray(response.output));
     if (Array.isArray(response.output)) {
         console.log('Output array length:', response.output.length);
-        console.log('Output types:', response.output.map(item => (item as {type?: string}).type));
-        // Log content structure
+        console.log('Output item types:', response.output.map(item => (item as {type?: string}).type));
+        
+        // Log detailed structure for debugging
         response.output.forEach((item, idx) => {
-            if ('content' in item) {
-                const content = (item as { content?: Array<{ type?: string; text?: string }> }).content;
-                if (Array.isArray(content)) {
-                    console.log(`  Item ${idx} content types:`, content.map(c => c?.type));
-                    content.forEach((c, cidx) => {
-                        if (c?.text) {
-                            console.log(`    Content ${cidx} text preview:`, c.text.substring(0, 100));
-                        }
-                    });
-                }
+            const itemWithContent = item as { type?: string; content?: Array<{ type?: string; text?: string }> };
+            console.log(`\n--- Output Item ${idx} ---`);
+            console.log('  Type:', itemWithContent.type);
+            console.log('  Has content:', 'content' in itemWithContent);
+            
+            if ('content' in itemWithContent && Array.isArray(itemWithContent.content)) {
+                console.log(`  Content array length: ${itemWithContent.content.length}`);
+                itemWithContent.content.forEach((c, cidx) => {
+                    console.log(`    Content ${cidx}:`);
+                    console.log(`      type: ${c?.type}`);
+                    console.log(`      hasText: ${!!c?.text}`);
+                    if (c?.text) {
+                        console.log(`      text length: ${c.text.length}`);
+                        console.log(`      text preview: ${c.text.substring(0, 150)}...`);
+                    }
+                });
             }
         });
     }
-    console.log('Extracted aiResponse length:', aiResponse.length);
-    console.log('Extracted aiResponse preview:', aiResponse.substring(0, 300));
+    console.log('\nExtracted aiResponse length:', aiResponse.length);
+    if (aiResponse.length > 0) {
+        console.log('Extracted aiResponse preview:', aiResponse.substring(0, 300));
+    } else {
+        console.error('ERROR: aiResponse is EMPTY - no text was extracted!');
+    }
     console.log('='.repeat(80) + '\n');
     
     if (hooks.onStepUpdate) {
@@ -539,6 +586,9 @@ export async function queryPricingWithStreamingResponse(
     return new ReadableStream({
         async start(controller) {
             try {
+                // Send initial heartbeat to establish connection
+                controller.enqueue(encoder.encode(': heartbeat\n\n'));
+                
                 const { aiResponse, pricingContext, responseId } = await executePricingWorkflow(prompt, previousResponseId, {
                     onStepUpdate: async (step) => {
                         // Send step update to client
@@ -547,8 +597,14 @@ export async function queryPricingWithStreamingResponse(
                             data: { message: step }
                         };
                         controller.enqueue(encoder.encode(`data: ${JSON.stringify(stepPayload)}\n\n`));
+                        // Flush immediately for Azure Web App
+                        await new Promise(resolve => setTimeout(resolve, 0));
                     },
                     onPriceData: async (data) => {
+                        // Split large payloads to avoid buffering issues
+                        const itemsCount = data.Items.length;
+                        console.log(`[Streaming] Sending ${itemsCount} items via price_data`);
+                        
                         const payload = {
                             type: 'price_data',
                             data: {
@@ -558,6 +614,8 @@ export async function queryPricingWithStreamingResponse(
                             }
                         };
                         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+                        // Flush immediately
+                        await new Promise(resolve => setTimeout(resolve, 0));
                     }
                 });
 
@@ -596,15 +654,17 @@ export async function queryPricingWithStreamingResponse(
                 }
 
                 console.log('[Streaming] Sending ai_response_complete');
+                // Don't send Items again - they were already sent in price_data event
+                // This prevents huge SSE messages that can cause issues in Azure Web App
                 const completionPayload = {
                     type: 'ai_response_complete',
                     data: {
-                        content: aiResponse || 'No response generated',
-                        Items: pricingContext.Items,
-                        filter: pricingContext.filter
+                        content: aiResponse || 'No response generated'
+                        // Removed Items and filter - already sent via price_data
                     }
                 };
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify(completionPayload)}\n\n`));
+                console.log('[Streaming] Stream completed successfully');
                 controller.close();
 
             } catch (error) {

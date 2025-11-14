@@ -180,14 +180,31 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
       let aiResponseComplete = false;
       let fullAiResponse = '';
       let buffer = ''; // Add buffer to handle incomplete JSON
+      
+      // Add timeout protection for Azure Web App
+      const timeoutId = setTimeout(() => {
+        if (!aiResponseComplete) {
+          console.warn('[ChatInterface] Stream timeout - forcing completion');
+          aiResponseComplete = true;
+          reader.cancel();
+        }
+      }, 120000); // 2 minute timeout
 
       // Read streaming response
       while (!aiResponseComplete) {
         const { value, done } = await reader.read();
-        if (done) break;
+        if (done) {
+          console.log('[ChatInterface] Stream done signal received');
+          break;
+        }
         
         const chunk = decoder.decode(value, { stream: true });
         buffer += chunk;
+        
+        // Skip heartbeat messages
+        if (buffer.includes(': heartbeat\n\n')) {
+          buffer = buffer.replace(/: heartbeat\n\n/g, '');
+        }
         
         // Find complete SSE messages
         const messages = [];
@@ -293,12 +310,14 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                   const filter = data.data?.filter || '';
                   
                   if (items.length > 0) {
+                    console.log(`[ChatInterface] Calling onResults with ${items.length} items`);
                     onResults({
                       items,
                       filter,
                       aiResponse: undefined,
                       append: true // Always append - table only clears when Clear button is clicked
                     });
+                    console.log('[ChatInterface] onResults completed');
                   } else {
                     console.warn('[ChatInterface] Received price_data with no items');
                   }
@@ -314,20 +333,25 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                   
                 case 'ai_response_complete':
                   // AI response complete
+                  console.log('[ChatInterface] Received ai_response_complete');
                   aiResponseComplete = true;
                   if (priceDataReceived) {
                     // Hide streaming response to avoid duplicate display
                     setStreamingResponse('');
                     
                     // Update final message
+                    const finalContent = fullAiResponse || data.data?.content || 'Response completed';
+                    console.log('[ChatInterface] Setting final message, length:', finalContent.length);
                     setMessages(prev => prev.map(msg => 
                       msg.id === loadingMsgId 
-                        ? { ...msg, content: fullAiResponse || data.data.content } 
+                        ? { ...msg, content: finalContent } 
                         : msg
                     ));
                     
                     // Final update doesn't need append (data already appended earlier)
                     // Only update aiResponse here
+                  } else {
+                    console.warn('[ChatInterface] ai_response_complete received but no priceDataReceived');
                   }
                   break;
                 
@@ -381,8 +405,12 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
         }
       }
       
+      // Clear timeout
+      clearTimeout(timeoutId);
+      
       // If stream ends but no completion message received, finalize processing
       if (!aiResponseComplete && priceDataReceived) {
+        console.log('[ChatInterface] Stream ended without completion message - finalizing');
         // Update final message
         setMessages(prev => prev.map(msg => 
           msg.id === loadingMsgId 
