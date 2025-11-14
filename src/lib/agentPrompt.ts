@@ -133,13 +133,27 @@ Key factors to assess:
 </tool_usage_policy>
 
 <PROGRESSIVE_FUZZY_BROADENING_STRATEGY>
-If a query returns no results, perform up to **3 fallback attempts**, broadening the fuzzy match scope **only within productName/meterName**:
-**example:**  
-1. 'contains(tolower(metername), 'gpt') and contains(tolower(metername), '5') and contains(tolower(metername), 'mini')'  
-2. 'contains(tolower(metername), 'gpt') and contains(tolower(metername), '5')'  
-3. 'contains(tolower(metername), 'gpt')'
-> ⚙️ Each fallback step removes one keyword from the end of the condition chain.  
-> Stop after 3 unsuccessful attempts and report SKU unavailable in region.
+**When a query returns ZERO results:**
+
+The tool will attempt automatic broadening (removing last keyword), but if still unsuccessful, you will receive an empty result with a suggestion message.
+
+**Your response to empty results:**
+1. Review the suggestion in the tool output
+2. Generate a NEW query with different strategy:
+   - Try alternative keywords (synonyms, abbreviations, or broader terms)
+   - Verify region name is correct (check spelling, try nearby regions)
+   - Remove product filters if too specific
+   - Use more general service names
+3. Execute the new query immediately - do NOT give up after first attempt
+4. After 2-3 failed attempts with different strategies, inform user the SKU may not be available in that region
+
+**Example progression:**
+1. First attempt: 'contains(tolower(metername), 'gpt') and contains(tolower(metername), '5') and contains(tolower(metername), 'mini')' → 0 results
+2. Second attempt (alternative): 'contains(tolower(productname), 'openai') and contains(tolower(metername), 'gpt')' → Check if service exists
+3. Third attempt (broader): 'contains(tolower(metername), 'gpt')' → Get any GPT pricing for context
+
+> ⚙️ The system supports iterative refinement - use tool outputs to guide next query.
+> ⚙️ Empty results mean you should try a different approach, not give up.
 </PROGRESSIVE_FUZZY_BROADENING_STRATEGY>
 
 <TOKEN_NORMALIZATION_RULES>

@@ -368,7 +368,15 @@ async function executePricingWorkflow(
 
         for (let i = 0; i < toolCalls.length; i++) {
             const toolCall = toolCalls[i];
-            const queryFilter = parseQueryFilter(toolCall);
+            let queryFilter = parseQueryFilter(toolCall);
+            
+            // Fix OData filter case sensitivity issues
+            queryFilter = queryFilter
+                .replace(/armregionname/gi, 'armRegionName')
+                .replace(/armskuname/gi, 'armSkuName')
+                .replace(/metername/gi, 'meterName')
+                .replace(/productname/gi, 'productName')
+                .replace(/servicename/gi, 'serviceName');
             
             // Log OData query to server terminal for diagnostics
             console.log('\n' + '='.repeat(80));
@@ -441,7 +449,11 @@ async function executePricingWorkflow(
                     Items: priceResult.Items,
                     filter: priceResult.finalFilter,
                     attemptCount: priceResult.attemptCount,
-                    originalFilter: queryFilter
+                    originalFilter: queryFilter,
+                    // Add helpful context when no results found
+                    ...(priceResult.Items.length === 0 ? {
+                        suggestion: 'No results found. Consider: 1) Check region name spelling, 2) Try broader SKU/service name keywords, 3) Verify the service exists in this region, 4) Use contains() instead of exact match'
+                    } : {})
                 })
             });
 
@@ -469,6 +481,19 @@ async function executePricingWorkflow(
                 type: (item as {type?: string}).type,
                 id: (item as {id?: string}).id?.substring(0, 20)
             })));
+        }
+        
+        // Check if agent wants to retry with new queries when results are empty
+        const hasNewToolCalls = extractUnprocessedToolCalls(response, processedCalls).length > 0;
+        const hasEmptyResults = !latestPricingContext || latestPricingContext.Items.length === 0;
+        
+        if (hasNewToolCalls && hasEmptyResults) {
+            console.log('[Agent Retry] Agent is attempting new queries after empty results');
+            if (hooks.onStepUpdate) {
+                await hooks.onStepUpdate('🔄 Adjusting search strategy based on results...');
+            }
+            // Continue the loop to process new tool calls
+            continue;
         }
 
         // Extract and notify reasoning after data analysis
@@ -751,31 +776,52 @@ function broadenQuery(filter: string): string | null {
 export async function fetchPrices(filter: string) {
     const api_url = "https://prices.azure.com/api/retail/prices?api-version=2023-01-01-preview";
     let allItems: PricingItem[] = [];
-    let nextPageUrl = `${api_url}&$filter=${filter}`;
+    let nextPageUrl = `${api_url}&$filter=${encodeURIComponent(filter)}`;
+    
+    console.log('[fetchPrices] Encoded URL:', nextPageUrl);
 
     while (nextPageUrl) {
-        const response = await fetch(nextPageUrl);
-        if (!response.ok) {
-            throw new Error('Failed to fetch prices');
+        try {
+            // Add timeout using AbortController
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+            
+            const response = await fetch(nextPageUrl, {
+                signal: controller.signal,
+                headers: { 'Accept': 'application/json' }
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+                throw new Error(`Failed to fetch prices: ${response.status}`);
+            }
+            const data = await response.json();
+            if (data.Items && Array.isArray(data.Items)) {
+                const processedItems = data.Items.map((item: Record<string, unknown>) => ({
+                    armSkuName: item.armSkuName,
+                    retailPrice: item.retailPrice,
+                    unitOfMeasure: item.unitOfMeasure,
+                    armRegionName: item.armRegionName,
+                    meterId: item.meterId,
+                    meterName: item.meterName,
+                    productName: item.productName,
+                    type: item.type,
+                    location: item.location,
+                    reservationTerm: item.reservationTerm,
+                    savingsPlan: item.savingsPlan
+                }));
+                allItems = [...allItems, ...processedItems];
+                console.log(`[fetchPrices] Fetched ${processedItems.length} items, total: ${allItems.length}`);
+            }
+            nextPageUrl = data.NextPageLink || '';
+        } catch (error) {
+            if (error instanceof Error && error.name === 'AbortError') {
+                console.error('[fetchPrices] Request timeout');
+                throw new Error('Request timeout - Azure Prices API did not respond in time');
+            }
+            throw error;
         }
-        const data = await response.json();
-        if (data.Items && Array.isArray(data.Items)) {
-            const processedItems = data.Items.map((item: Record<string, unknown>) => ({
-                armSkuName: item.armSkuName,
-                retailPrice: item.retailPrice,
-                unitOfMeasure: item.unitOfMeasure,
-                armRegionName: item.armRegionName,
-                meterId: item.meterId,
-                meterName: item.meterName,
-                productName: item.productName,
-                type: item.type,
-                location: item.location,
-                reservationTerm: item.reservationTerm,
-                savingsPlan: item.savingsPlan
-            }));
-            allItems = [...allItems, ...processedItems];
-        }
-        nextPageUrl = data.NextPageLink || '';
     }
 
     return { Items: allItems };
