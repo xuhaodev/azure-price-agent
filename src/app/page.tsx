@@ -35,34 +35,42 @@ export default function Home() {
   }, []);
 
   const handleResults = ({items, filter, append = false}: {items: PricingItem[], filter: string, append?: boolean}) => {
+    console.log('[Page] ========== HANDLE RESULTS CALLED ==========');
+    console.log('[Page] Raw items type:', typeof items);
+    console.log('[Page] Raw items is array:', Array.isArray(items));
+    console.log('[Page] Raw items length:', items?.length);
+    
     // Ensure items is an array
     const safeItems = Array.isArray(items) ? items : [];
     
-    console.log('[Page] handleResults called:', {
-      itemCount: safeItems.length,
-      append,
-      filter
-    });
+    console.log('[Page] Safe items count:', safeItems.length);
+    console.log('[Page] Append mode:', append);
+    console.log('[Page] Filter:', filter);
+    console.log('[Page] Call stack:', new Error().stack?.split('\n').slice(1, 4).join('\n'));
     
     if (append) {
       // Append mode: accumulate results from multiple tool calls in same session
       // Agent may call query tool multiple times, all results should be accumulated
       setResults(prev => {
+        console.log('[Page] Previous results count:', prev.length);
         const newResults = [...prev, ...safeItems];
-        console.log('OData Query Filter:', filter, `(appended ${safeItems.length} items, total: ${newResults.length})`);
+        console.log('[Page] New total count:', newResults.length);
+        console.log('[Page] OData Query Filter:', filter, `(appended ${safeItems.length} items, total: ${newResults.length})`);
         if (safeItems.length > 0) {
-          console.log('Sample item:', safeItems[0]); // Log first item for debugging
+          console.log('[Page] Sample item:', safeItems[0]); // Log first item for debugging
         }
         return newResults;
       });
     } else {
       // Replace mode: new session starts (Clear button clicked), clear and set new data
+      console.log('[Page] Replace mode - setting new results');
       setResults(safeItems);
-      console.log('OData Query Filter:', filter, `(replaced with ${safeItems.length} items)`);
+      console.log('[Page] OData Query Filter:', filter, `(replaced with ${safeItems.length} items)`);
       if (safeItems.length > 0) {
-        console.log('Sample item:', safeItems[0]); // Log first item for debugging
+        console.log('[Page] Sample item:', safeItems[0]); // Log first item for debugging
       }
     }
+    console.log('[Page] ==========================================');
   };
 
   return (

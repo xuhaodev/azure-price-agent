@@ -241,35 +241,146 @@ function extractOutputText(response: Response): string {
 }
 
 function extractReasoningContent(response: Response): string {
-    // Try to extract reasoning content from response
-    // The Response object may contain reasoning_content field
+    console.log('[extractReasoningContent] Starting extraction...');
+    
+    // According to OpenAI Responses API documentation:
+    // - response.reasoning is just configuration (effort, summary setting)
+    // - Actual reasoning content is in response.output array where type === "reasoning"
+    // - Format: reasoning_item.summary[0].text
+    
     const responseAny = response as unknown as { 
-        reasoning_content?: string | Array<{ type?: string; text?: string }>;
-        reasoning?: { summary?: string[] };
+        reasoning?: { 
+            effort?: string;
+            summary?: string; // This is just config: "auto", "detailed", etc.
+        };
     };
     
-    if (typeof responseAny.reasoning_content === 'string') {
-        return responseAny.reasoning_content;
-    }
+    console.log('[extractReasoningContent] response.reasoning (config only):', responseAny.reasoning);
     
-    if (Array.isArray(responseAny.reasoning_content)) {
-        return responseAny.reasoning_content
-            .filter(item => item?.type === 'text' && typeof item?.text === 'string')
-            .map(item => item.text)
-            .filter(Boolean)
-            .join('');
-    }
-
-    // Try to extract from reasoning.summary field
-    if (responseAny.reasoning?.summary && Array.isArray(responseAny.reasoning.summary)) {
-        const summaryText = responseAny.reasoning.summary
-            .filter(item => typeof item === 'string' && item.trim().length > 0)
-            .join('. ');
-        if (summaryText) return summaryText;
-    }
-
-    // Try to extract from output array if reasoning is embedded
-    if (Array.isArray(response.output)) {
+    // Extract from output array - find item with type === "reasoning"
+    // According to API: response.output[0].summary[0].text when type === "reasoning"
+    if (Array.isArray(response.output) && response.output.length > 0) {
+        console.log('[extractReasoningContent] Checking output array with', response.output.length, 'items');
+        
+        // Log all output items to understand structure
+        response.output.forEach((item, idx) => {
+            const typedItem = item as { type?: string; id?: string };
+            console.log(`[extractReasoningContent] Output[${idx}]:`, {
+                type: typedItem.type,
+                id: typedItem.id?.substring(0, 30)
+            });
+        });
+        
+        // Find the first item with type === "reasoning"
+        const reasoningItem = response.output.find((item) => {
+            const typedItem = item as { type?: string };
+            return typedItem.type === 'reasoning';
+        }) as {
+            type?: string;
+            summary?: Array<{ text?: string; type?: string }>;
+            text?: string;
+            content?: Array<{ type?: string; text?: string }>;
+        } | undefined;
+        
+        if (reasoningItem) {
+            console.log('[extractReasoningContent] Found reasoning item:', {
+                type: reasoningItem.type,
+                hasSummary: !!reasoningItem.summary,
+                summaryIsArray: Array.isArray(reasoningItem.summary),
+                summaryLength: Array.isArray(reasoningItem.summary) ? reasoningItem.summary.length : 'N/A'
+            });
+            
+            // Direct access: reasoning_item.summary[0].text
+            if (Array.isArray(reasoningItem.summary) && reasoningItem.summary.length > 0) {
+                const firstSummary = reasoningItem.summary[0];
+                console.log('[extractReasoningContent] First summary object:', {
+                    exists: !!firstSummary,
+                    type: firstSummary?.type,
+                    hasText: !!firstSummary?.text,
+                    textType: typeof firstSummary?.text,
+                    textLength: firstSummary?.text?.length || 0
+                });
+                
+                if (firstSummary && typeof firstSummary.text === 'string' && firstSummary.text.length > 0) {
+                    // Ensure we're not returning status identifiers
+                    if (firstSummary.text !== 'detailed' && firstSummary.text !== 'auto') {
+                        console.log('[extractReasoningContent] ✓ Successfully extracted summary[0].text:', firstSummary.text.length, 'chars');
+                        console.log('[extractReasoningContent] First 500 chars:', firstSummary.text.substring(0, 500));
+                        return firstSummary.text;
+                    } else {
+                        console.log('[extractReasoningContent] ⚠️ Skipping status identifier:', firstSummary.text);
+                    }
+                }
+            }
+        } else {
+            console.log('[extractReasoningContent] ⚠️ No item with type="reasoning" found in output array');
+        }
+        
+        // Fallback: check all output items for reasoning type
+        console.log('[extractReasoningContent] Fallback: searching all output items for reasoning content');
+        const reasoningItems = response.output.filter((item) => {
+            const itemType = (item as { type?: string }).type;
+            return itemType === 'reasoning' || itemType === 'thought';
+        });
+        
+        console.log('[extractReasoningContent] Found', reasoningItems.length, 'reasoning-type items');
+        
+        if (reasoningItems.length > 0) {
+            const summaryTexts = reasoningItems
+                .map((item, itemIdx) => {
+                    const reasoningItem = item as { 
+                        type?: string;
+                        summary?: Array<{ text?: string; type?: string }>;
+                        text?: string;
+                        content?: Array<{ type?: string; text?: string }>;
+                    };
+                    
+                    console.log(`[extractReasoningContent] Reasoning item ${itemIdx}:`, {
+                        hasSummary: !!reasoningItem.summary,
+                        isArray: Array.isArray(reasoningItem.summary),
+                        length: Array.isArray(reasoningItem.summary) ? reasoningItem.summary.length : 'N/A'
+                    });
+                    
+                    // Get summary[0].text
+                    if (Array.isArray(reasoningItem.summary) && reasoningItem.summary.length > 0) {
+                        const firstSummary = reasoningItem.summary[0];
+                        if (firstSummary && typeof firstSummary.text === 'string') {
+                            console.log('[extractReasoningContent] ✓ Found text in reasoning item:', firstSummary.text.length, 'chars');
+                            return firstSummary.text;
+                        }
+                    }
+                    
+                    // Try direct text property
+                    if (typeof reasoningItem.text === 'string') {
+                        console.log('[extractReasoningContent] Found direct text property:', reasoningItem.text.length, 'chars');
+                        return reasoningItem.text;
+                    }
+                    
+                    // Try content array
+                    if (Array.isArray(reasoningItem.content)) {
+                        const contentText = reasoningItem.content
+                            .filter((c) => typeof c?.text === 'string')
+                            .map((c) => c.text)
+                            .filter(Boolean)
+                            .join('');
+                        if (contentText) {
+                            console.log('[extractReasoningContent] Found text in content array:', contentText.length, 'chars');
+                            return contentText;
+                        }
+                    }
+                    
+                    return '';
+                })
+                .filter(Boolean)
+                .join('\n');
+            
+            if (summaryTexts) {
+                console.log('[extractReasoningContent] Total extracted reasoning:', summaryTexts.length, 'chars');
+                return summaryTexts;
+            }
+        }
+        
+        // Fallback: check all items with content arrays
         const reasoningChunks = response.output.flatMap((item) => {
             if (!('content' in item)) {
                 return [];
@@ -288,10 +399,12 @@ function extractReasoningContent(response: Response): string {
         });
 
         if (reasoningChunks.length > 0) {
+            console.log('[extractReasoningContent] Extracted from content arrays:', reasoningChunks.join('').length, 'chars');
             return reasoningChunks.join('');
         }
     }
 
+    console.log('[extractReasoningContent] No reasoning content found');
     return '';
 }
 
@@ -304,52 +417,123 @@ async function executePricingWorkflow(
     const model = getDeploymentName();
     const processedCalls = new Set<string>();
     let latestPricingContext: PricingContext | undefined;
+    let fullResponse: Response | null = null;
 
-    // Create response with previous_response_id to continue the same conversation thread
+    // Create streaming response with previous_response_id to continue the same conversation thread
     // The agent will decide whether to call tools based on the query
-    if (hooks.onStepUpdate) {
-        await hooks.onStepUpdate('🧠 Agent is thinking...');
-    }
 
-    let response: Response = await client.responses.create({
+    const stream = await client.responses.create({
         model,
         input: buildConversation(prompt),
         tools: [PRICE_QUERY_TOOL],
-        reasoning: { effort: "medium",
-            "summary": "auto"
-         }, // Use medium effort to get more reasoning details
-        max_output_tokens: 2000, // Allow up to 4000 tokens for detailed analysis and recommendations
+        reasoning: { effort: "medium", summary: "auto" }, // Use medium effort to get more reasoning details
+        max_output_tokens: 2000,
+        stream: true, // Enable streaming
         ...(previousResponseId ? { previous_response_id: previousResponseId } : {})
     });
 
+    console.log('[DEBUG] Streaming enabled, processing events...');
+    
+    let reasoningExtracted = false;
+    let currentResponse: Response | null = null;
+
+    // Process streaming events
+    for await (const event of stream) {
+        console.log('[DEBUG] Stream event:', event.type);
+        
+        switch (event.type) {
+            case 'response.created':
+            case 'response.in_progress':
+                // Response is being created/processed
+                break;
+                
+            case 'response.output_text.delta':
+                // Streaming text delta - could be used for real-time display
+                if ('delta' in event && event.delta) {
+                    // Text delta available for streaming (future enhancement)
+                }
+                break;
+                
+            case 'response.output_item.done':
+                // An output item is complete (could be reasoning, message, or function call)
+                if (!reasoningExtracted && currentResponse && hooks.onStepUpdate) {
+                    const reasoning = extractReasoningContent(currentResponse);
+                    if (reasoning) {
+                        const cleanReasoning = reasoning
+                            .replace(/\*\*/g, '')
+                            .replace(/\n+/g, ' ')
+                            .replace(/\s+/g, ' ')
+                            .trim();
+                        
+                        const words = cleanReasoning.split(/\s+/);
+                        const first15Words = words.slice(0, 15).join(' ');
+                        const displayReasoning = words.length > 15 
+                            ? `${first15Words}...` 
+                            : first15Words;
+                        
+                        await hooks.onStepUpdate(`💭 ${displayReasoning}`);
+                        reasoningExtracted = true;
+                    }
+                }
+                break;
+                
+            case 'response.completed':
+                // Response is fully complete
+                if ('response' in event && event.response) {
+                    fullResponse = event.response as Response;
+                    currentResponse = fullResponse;
+                }
+                console.log('[DEBUG] Response completed');
+                break;
+                
+            case 'error':
+                console.error('[DEBUG] Stream error:', event);
+                const errorMsg = 'error' in event && event.error ? 
+                    (typeof event.error === 'string' ? event.error : JSON.stringify(event.error)) : 
+                    'Stream error occurred';
+                throw new Error(errorMsg);
+                
+            default:
+                // Store response updates during streaming
+                if ('response' in event && event.response) {
+                    currentResponse = event.response as Response;
+                }
+                break;
+        }
+    }
+
+    if (!fullResponse) {
+        throw new Error('Stream completed without final response');
+    }
+
+    let response = fullResponse;
+
     // Log response structure for debugging
     console.log('[DEBUG] Response object keys:', Object.keys(response));
-    if (process.env.NODE_ENV === 'development') {
-        console.log('[DEBUG] Response output summary:', response.output?.map(item => ({ 
-            type: (item as {type?: string}).type, 
-            id: (item as {id?: string}).id?.substring(0, 20) 
-        })));
-    }
+    console.log('[DEBUG] Response.reasoning:', JSON.stringify(response.reasoning, null, 2));
     
-    // Extract and notify reasoning/thinking process
-    const reasoning = extractReasoningContent(response);
-    console.log('[DEBUG] Extracted reasoning length:', reasoning.length);
-    
-    if (reasoning && hooks.onStepUpdate) {
-        // Split reasoning into sentences or key points for better display
-        const reasoningLines = reasoning
-            .split(/[.!?]\s+/)
-            .filter(line => line.trim().length > 10)
-            .slice(0, 3); // Show first 3 key thoughts
+    // Extract reasoning if not already done during streaming
+    if (!reasoningExtracted) {
+        const reasoning = extractReasoningContent(response);
+        console.log('[DEBUG] Extracted reasoning length:', reasoning.length);
         
-        for (const thought of reasoningLines) {
-            if (thought.trim()) {
-                await hooks.onStepUpdate(`💭 Thinking: ${thought.trim()}`);
-            }
+        if (reasoning && hooks.onStepUpdate) {
+            const cleanReasoning = reasoning
+                .replace(/\*\*/g, '')
+                .replace(/\n+/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            
+            const words = cleanReasoning.split(/\s+/);
+            const first10Words = words.slice(0, 10).join(' ');
+            const displayReasoning = words.length > 10 
+                ? `${first10Words}...` 
+                : first10Words;
+            
+            await hooks.onStepUpdate(`💭 ${displayReasoning}`);
+        } else if (hooks.onStepUpdate) {
+            await hooks.onStepUpdate('🧠 Agent is working...');
         }
-    } else if (hooks.onStepUpdate) {
-        // Always show something even if no reasoning extracted - analyze the query
-        await hooks.onStepUpdate('💭 Parsing query requirements...');
     }
 
     while (true) {
@@ -400,9 +584,35 @@ async function executePricingWorkflow(
             }
 
             // Use retry mechanism with query broadening
-            const priceResult = await fetchPricesWithRetry(queryFilter, {
-                onStepUpdate: hooks.onStepUpdate
-            });
+            let priceResult;
+            try {
+                priceResult = await fetchPricesWithRetry(queryFilter, {
+                    onStepUpdate: hooks.onStepUpdate
+                });
+            } catch (error) {
+                console.error(`[Query ${i + 1}/${toolCalls.length}] Execution failed:`, error);
+                
+                // Send error feedback to user
+                if (hooks.onStepUpdate) {
+                    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                    await hooks.onStepUpdate(`❌ Query ${i + 1}/${toolCalls.length} failed: ${errorMsg}`);
+                }
+                
+                // Return error information to agent so it can adjust
+                toolOutputs.push({
+                    type: 'function_call_output',
+                    call_id: toolCall.call_id,
+                    output: JSON.stringify({
+                        error: true,
+                        message: error instanceof Error ? error.message : 'Query execution failed',
+                        originalFilter: queryFilter,
+                        suggestion: 'The OData query syntax is invalid. Please check: 1) All quotes are properly closed, 2) Parentheses are balanced, 3) Field names are correct (armRegionName, armSkuName, etc), 4) Use tolower() for case-insensitive matching'
+                    })
+                });
+                
+                processedCalls.add(toolCall.call_id);
+                continue; // Skip to next query instead of failing entire workflow
+            }
 
             // Log query result to terminal
             console.log(`[Query Result] Found ${priceResult.Items.length} items`);
@@ -435,11 +645,20 @@ async function executePricingWorkflow(
                 }
             }
 
+            // Send price data via SSE - even if empty (for consistency)
             if (hooks.onPriceData) {
-                await hooks.onPriceData({
+                const priceDataToSend = {
                     ...latestPricingContext,
                     totalCount: priceResult.Items.length
-                });
+                };
+                console.log(`[onPriceData] Calling hook with ${priceDataToSend.Items.length} items`);
+                console.log(`[onPriceData] Filter: ${priceDataToSend.filter}`);
+                console.log(`[onPriceData] First item:`, priceDataToSend.Items[0] || 'N/A');
+                
+                await hooks.onPriceData(priceDataToSend);
+                console.log(`[onPriceData] Hook completed successfully`);
+            } else {
+                console.warn('[onPriceData] Hook not available!');
             }
 
             toolOutputs.push({
@@ -465,26 +684,24 @@ async function executePricingWorkflow(
             await hooks.onStepUpdate('🧠 Analyzing collected data...');
         }
 
-        response = await client.responses.create({
+        const analysisResponse = await client.responses.create({
             model,
             previous_response_id: response.id,
             input: toolOutputs,
-            reasoning: { effort: "medium",
-                "summary": "auto"
-             }, // Use medium effort to get reasoning details
-            max_output_tokens: 2000 // Allow sufficient tokens for comprehensive analysis
+            reasoning: { effort: "medium", "summary": "auto" },
+            max_output_tokens: 2000
         });
 
-        console.log('[DEBUG] Analysis response keys:', Object.keys(response));
+        console.log('[DEBUG] Analysis response keys:', Object.keys(analysisResponse));
         if (process.env.NODE_ENV === 'development') {
-            console.log('[DEBUG] Analysis output summary:', response.output?.map(item => ({ 
+            console.log('[DEBUG] Analysis output summary:', analysisResponse.output?.map(item => ({ 
                 type: (item as {type?: string}).type,
                 id: (item as {id?: string}).id?.substring(0, 20)
             })));
         }
         
         // Check if agent wants to retry with new queries when results are empty
-        const hasNewToolCalls = extractUnprocessedToolCalls(response, processedCalls).length > 0;
+        const hasNewToolCalls = extractUnprocessedToolCalls(analysisResponse, processedCalls).length > 0;
         const hasEmptyResults = !latestPricingContext || latestPricingContext.Items.length === 0;
         
         if (hasNewToolCalls && hasEmptyResults) {
@@ -497,19 +714,25 @@ async function executePricingWorkflow(
         }
 
         // Extract and notify reasoning after data analysis
-        const analysisReasoning = extractReasoningContent(response);
+        const analysisReasoning = extractReasoningContent(analysisResponse);
         console.log('[DEBUG] Analysis reasoning length:', analysisReasoning.length);
         
         if (analysisReasoning && hooks.onStepUpdate) {
-            const reasoningLines = analysisReasoning
-                .split(/[.!?]\s+/)
-                .filter(line => line.trim().length > 10)
-                .slice(0, 3); // Show first 3 analysis thoughts
+            // Show only ONE thought with first 10 words for elegant display
+            const cleanAnalysis = analysisReasoning
+                .replace(/\*\*/g, '')      // Remove markdown bold
+                .replace(/\n+/g, ' ')      // Remove newlines
+                .replace(/\s+/g, ' ')      // Collapse spaces
+                .trim();
             
-            for (const thought of reasoningLines) {
-                if (thought.trim()) {
-                    await hooks.onStepUpdate(`💡 Analysis: ${thought.trim()}`);
-                }
+            const words = cleanAnalysis.split(/\s+/);
+            const first10Words = words.slice(0, 10).join(' ');
+            const displayAnalysis = words.length > 10
+                ? `${first10Words}...`
+                : first10Words;
+            
+            if (displayAnalysis) {
+                await hooks.onStepUpdate(`💡 ${displayAnalysis}`);
             }
         } else if (hooks.onStepUpdate) {
             // Show generic analysis steps if no reasoning extracted
@@ -518,6 +741,9 @@ async function executePricingWorkflow(
                 await hooks.onStepUpdate('💡 Identifying optimal choices and trade-offs...');
             }
         }
+        
+        // Update response for next iteration
+        response = analysisResponse;
     }
 
     // Notify: Finalizing
@@ -543,10 +769,23 @@ async function executePricingWorkflow(
         
         // Log detailed structure for debugging
         response.output.forEach((item, idx) => {
-            const itemWithContent = item as { type?: string; content?: Array<{ type?: string; text?: string }> };
+            const itemWithContent = item as { 
+                type?: string; 
+                text?: string;
+                content?: Array<{ type?: string; text?: string }> 
+            };
             console.log(`\n--- Output Item ${idx} ---`);
             console.log('  Type:', itemWithContent.type);
+            console.log('  Has text (direct):', 'text' in itemWithContent);
             console.log('  Has content:', 'content' in itemWithContent);
+            
+            // For reasoning items, check if they have direct text
+            if (itemWithContent.type === 'reasoning' && 'text' in itemWithContent) {
+                console.log('  Direct text length:', typeof itemWithContent.text === 'string' ? itemWithContent.text.length : 'N/A');
+                if (typeof itemWithContent.text === 'string' && itemWithContent.text.length > 0) {
+                    console.log('  Direct text preview:', itemWithContent.text.substring(0, 150), '...');
+                }
+            }
             
             if ('content' in itemWithContent && Array.isArray(itemWithContent.content)) {
                 console.log(`  Content array length: ${itemWithContent.content.length}`);
@@ -616,7 +855,7 @@ export async function queryPricingWithStreamingResponse(
                 
                 const { aiResponse, pricingContext, responseId } = await executePricingWorkflow(prompt, previousResponseId, {
                     onStepUpdate: async (step) => {
-                        // Send step update to client
+                        // Send step update to client directly
                         const stepPayload = {
                             type: 'step_update',
                             data: { message: step }
@@ -626,9 +865,17 @@ export async function queryPricingWithStreamingResponse(
                         await new Promise(resolve => setTimeout(resolve, 0));
                     },
                     onPriceData: async (data) => {
-                        // Split large payloads to avoid buffering issues
+                        // Validate data structure
+                        if (!data || !Array.isArray(data.Items)) {
+                            console.error('[Streaming] Invalid data structure received in onPriceData:', data);
+                            return;
+                        }
+                        
                         const itemsCount = data.Items.length;
-                        console.log(`[Streaming] Sending ${itemsCount} items via price_data`);
+                        console.log(`[Streaming] ========== SENDING PRICE DATA ==========`);
+                        console.log(`[Streaming] Items count: ${itemsCount}`);
+                        console.log(`[Streaming] Filter: ${data.filter}`);
+                        console.log(`[Streaming] Total count: ${data.totalCount}`);
                         
                         const payload = {
                             type: 'price_data',
@@ -638,7 +885,15 @@ export async function queryPricingWithStreamingResponse(
                                 filter: data.filter
                             }
                         };
-                        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+                        
+                        const payloadStr = JSON.stringify(payload);
+                        console.log(`[Streaming] Payload size: ${payloadStr.length} bytes`);
+                        console.log(`[Streaming] First item:`, data.Items[0] || 'N/A');
+                        
+                        controller.enqueue(encoder.encode(`data: ${payloadStr}\n\n`));
+                        console.log(`[Streaming] price_data SSE message sent successfully`);
+                        console.log(`[Streaming] ==========================================`);
+                        
                         // Flush immediately
                         await new Promise(resolve => setTimeout(resolve, 0));
                     }
@@ -657,23 +912,52 @@ export async function queryPricingWithStreamingResponse(
                 console.log('[Streaming] has pricingContext:', !!pricingContext);
 
                 if (!pricingContext) {
-                    console.log('[Streaming] No pricing context - sending direct_response');
-                    const directPayload = {
-                        type: 'direct_response',
-                        data: { content: aiResponse || 'No response generated' }
+                    console.log('[Streaming] No pricing context - streaming direct_response');
+                    
+                    const responseText = aiResponse || 'No response generated';
+                    const words = responseText.split(/(\s+)/);
+                    
+                    for (const word of words) {
+                        if (word) {
+                            const chunkPayload = {
+                                type: 'ai_response_chunk',
+                                data: { content: word }
+                            };
+                            controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunkPayload)}\n\n`));
+                            await new Promise(resolve => setTimeout(resolve, 20));
+                        }
+                    }
+                    
+                    // Send completion
+                    const completionPayload = {
+                        type: 'ai_response_complete',
+                        data: { content: responseText }
                     };
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(directPayload)}\n\n`));
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(completionPayload)}\n\n`));
                     controller.close();
                     return;
                 }
 
                 if (aiResponse) {
-                    console.log('[Streaming] Sending ai_response_chunk with', aiResponse.length, 'chars');
-                    const chunkPayload = {
-                        type: 'ai_response_chunk',
-                        data: { content: aiResponse }
-                    };
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunkPayload)}\n\n`));
+                    console.log('[Streaming] Streaming ai_response with', aiResponse.length, 'chars');
+                    
+                    // Stream response character by character for typing effect
+                    const words = aiResponse.split(/(\s+)/); // Split by whitespace but keep the separators
+                    
+                    for (const word of words) {
+                        if (word) {
+                            const chunkPayload = {
+                                type: 'ai_response_chunk',
+                                data: { content: word }
+                            };
+                            controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunkPayload)}\n\n`));
+                            
+                            // Small delay for smooth typing effect (adjust as needed)
+                            await new Promise(resolve => setTimeout(resolve, 20));
+                        }
+                    }
+                    
+                    console.log('[Streaming] Finished streaming response');
                 } else {
                     console.warn('[Streaming] WARNING: aiResponse is empty but pricingContext exists!');
                 }
@@ -774,11 +1058,45 @@ function broadenQuery(filter: string): string | null {
 }
 
 export async function fetchPrices(filter: string) {
+    // Validate filter before making request
+    if (!filter || typeof filter !== 'string' || filter.trim().length === 0) {
+        throw new Error('Invalid filter: filter cannot be empty');
+    }
+    
+    // Check for common OData syntax issues
+    const hasUnmatchedQuotes = (filter.match(/'/g) || []).length % 2 !== 0;
+    const hasUnmatchedParens = (filter.match(/\(/g) || []).length !== (filter.match(/\)/g) || []).length;
+    
+    if (hasUnmatchedQuotes) {
+        console.error('[fetchPrices] Validation Error: Unmatched quotes in filter:', filter);
+        throw new Error('Invalid OData query: unmatched quotes');
+    }
+    
+    if (hasUnmatchedParens) {
+        console.error('[fetchPrices] Validation Error: Unmatched parentheses in filter:', filter);
+        throw new Error('Invalid OData query: unmatched parentheses');
+    }
+    
+    // Check for common typos in function names
+    const invalidFunctions = filter.match(/\b(tollower|toupper|tolwer|tolowr)\(/gi);
+    if (invalidFunctions) {
+        console.error('[fetchPrices] Validation Error: Invalid function name found:', invalidFunctions[0]);
+        console.error('[fetchPrices] Did you mean: tolower() or toupper()?');
+        throw new Error(`Invalid OData query: '${invalidFunctions[0]}' is not a valid function. Did you mean 'tolower(' or 'toupper('?`);
+    }
+    
     const api_url = "https://prices.azure.com/api/retail/prices?api-version=2023-01-01-preview";
     let allItems: PricingItem[] = [];
     let nextPageUrl = `${api_url}&$filter=${encodeURIComponent(filter)}`;
     
-    console.log('[fetchPrices] Encoded URL:', nextPageUrl);
+    console.log('[fetchPrices] Original filter:', filter);
+    console.log('[fetchPrices] Encoded URL length:', nextPageUrl.length, 'chars');
+    console.log('[fetchPrices] Full URL:', nextPageUrl);
+    
+    // Check URL length (Azure API has limits)
+    if (nextPageUrl.length > 4000) {
+        console.warn('[fetchPrices] Warning: URL is very long (', nextPageUrl.length, 'chars), may cause issues');
+    }
 
     while (nextPageUrl) {
         try {
@@ -794,7 +1112,23 @@ export async function fetchPrices(filter: string) {
             clearTimeout(timeoutId);
             
             if (!response.ok) {
-                throw new Error(`Failed to fetch prices: ${response.status}`);
+                let errorDetails = `Status: ${response.status} ${response.statusText}`;
+                try {
+                    const errorBody = await response.text();
+                    console.error('[fetchPrices] Error response body:', errorBody);
+                    errorDetails += ` - ${errorBody.substring(0, 500)}`;
+                } catch (e) {
+                    console.error('[fetchPrices] Could not read error body:', e);
+                }
+                
+                // For 400 errors, include the filter that caused the issue
+                if (response.status === 400) {
+                    console.error('[fetchPrices] Bad Request - Filter:', filter);
+                    console.error('[fetchPrices] Full URL:', nextPageUrl);
+                    throw new Error(`Bad Request (400): The OData query is invalid. ${errorDetails}`);
+                }
+                
+                throw new Error(`Failed to fetch prices: ${errorDetails}`);
             }
             const data = await response.json();
             if (data.Items && Array.isArray(data.Items)) {

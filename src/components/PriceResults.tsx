@@ -16,11 +16,13 @@ export default function PriceResults({ items, height }: { items: PricingItem[], 
 
   // Add debug logging
   useEffect(() => {
-    console.log('[PriceResults] Received items:', {
-      count: items.length,
-      firstItem: items[0],
-      allSKUs: items.map(i => i.armSkuName).slice(0, 5) // First 5 SKUs
-    });
+    console.log('[PriceResults] ========== COMPONENT RENDER ==========');
+    console.log('[PriceResults] Items prop type:', typeof items);
+    console.log('[PriceResults] Items is array:', Array.isArray(items));
+    console.log('[PriceResults] Items count:', items?.length || 0);
+    console.log('[PriceResults] First item:', items?.[0]);
+    console.log('[PriceResults] All SKUs (first 5):', items?.map(i => i.armSkuName).slice(0, 5));
+    console.log('[PriceResults] ==========================================');
   }, [items]);
 
   // Sort and filter items - move useMemo before conditional check

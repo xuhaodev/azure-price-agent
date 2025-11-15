@@ -201,29 +201,80 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
         const chunk = decoder.decode(value, { stream: true });
         buffer += chunk;
         
+        console.log(`[ChatInterface] Received chunk, buffer size: ${buffer.length} bytes`);
+        
         // Skip heartbeat messages
         if (buffer.includes(': heartbeat\n\n')) {
           buffer = buffer.replace(/: heartbeat\n\n/g, '');
         }
         
-        // Find complete SSE messages
+        // Find complete SSE messages - use a more robust approach for nested JSON
         const messages = [];
-        let match;
-        // Remove 's' flag, use more compatible way to handle newlines
-        const messageRegex = /data: ({.*?})\n\n/g;
+        let searchStart = 0;
         
-        // Extract all complete messages
-        while ((match = messageRegex.exec(buffer)) !== null) {
-          messages.push(match[1]);
+        while (true) {
+          // Find next "data: " prefix
+          const dataStart = buffer.indexOf('data: ', searchStart);
+          if (dataStart === -1) break;
+          
+          const jsonStart = dataStart + 6; // Length of "data: "
+          
+          // Find the matching closing brace for the JSON object
+          let braceCount = 0;
+          let inString = false;
+          let escaped = false;
+          let jsonEnd = -1;
+          
+          for (let i = jsonStart; i < buffer.length; i++) {
+            const char = buffer[i];
+            
+            if (escaped) {
+              escaped = false;
+              continue;
+            }
+            
+            if (char === '\\') {
+              escaped = true;
+              continue;
+            }
+            
+            if (char === '"') {
+              inString = !inString;
+              continue;
+            }
+            
+            if (!inString) {
+              if (char === '{') braceCount++;
+              if (char === '}') braceCount--;
+              
+              if (braceCount === 0 && buffer.substring(i + 1, i + 3) === '\n\n') {
+                jsonEnd = i + 1;
+                break;
+              }
+            }
+          }
+          
+          if (jsonEnd === -1) {
+            // Incomplete message, wait for more data
+            break;
+          }
+          
+          // Extract complete JSON message
+          const messageJson = buffer.substring(jsonStart, jsonEnd);
+          messages.push(messageJson);
+          console.log(`[ChatInterface] Extracted message (${messageJson.length} bytes):`, messageJson.substring(0, 100));
+          
+          // Move search position past this message
+          searchStart = jsonEnd + 2; // Skip \n\n
+        }
+        
+        // Remove processed messages from buffer
+        if (searchStart > 0) {
+          buffer = buffer.substring(searchStart);
+          console.log(`[ChatInterface] Processed ${messages.length} messages, buffer remaining: ${buffer.length} bytes`);
         }
         
         if (messages.length > 0) {
-          // Update buffer, only keep incomplete parts
-          const lastIndex = buffer.lastIndexOf('data: {');
-          const lastComplete = buffer.lastIndexOf('\n\n', lastIndex) + 2;
-          buffer = lastIndex > lastComplete ? buffer.substring(lastIndex) : '';
-          
-          // Process extracted complete messages
           for (const messageJson of messages) {
             try {
               const data = JSON.parse(messageJson);
@@ -298,29 +349,44 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                   // Only clear on new session (Clear button resets sessionResponseId to null)
                   priceDataReceived = true;
                   
-                  console.log('[ChatInterface] Received price_data:', {
-                    rawData: data,
-                    itemCount: data.data?.Items?.length || 0,
-                    filter: data.data?.filter,
-                    firstItem: data.data?.Items?.[0]
-                  });
+                  console.log('[ChatInterface] ========== RECEIVED PRICE_DATA ==========');
+                  console.log('[ChatInterface] Full data object:', JSON.stringify(data).substring(0, 500));
+                  console.log('[ChatInterface] data.data exists:', !!data.data);
+                  console.log('[ChatInterface] data.data.Items exists:', !!data.data?.Items);
+                  console.log('[ChatInterface] data.data.Items is array:', Array.isArray(data.data?.Items));
+                  console.log('[ChatInterface] Items count:', data.data?.Items?.length || 0);
+                  console.log('[ChatInterface] Filter:', data.data?.filter);
+                  console.log('[ChatInterface] First item:', data.data?.Items?.[0]);
+                  
+                  // Validate data structure
+                  if (!data.data) {
+                    console.error('[ChatInterface] ERROR: data.data is missing!');
+                    break;
+                  }
                   
                   // Ensure Items is an array before passing to onResults
                   const items = Array.isArray(data.data?.Items) ? data.data.Items : [];
                   const filter = data.data?.filter || '';
                   
+                  console.log(`[ChatInterface] Prepared items array with ${items.length} items`);
+                  
                   if (items.length > 0) {
-                    console.log(`[ChatInterface] Calling onResults with ${items.length} items`);
-                    onResults({
-                      items,
-                      filter,
-                      aiResponse: undefined,
-                      append: true // Always append - table only clears when Clear button is clicked
-                    });
-                    console.log('[ChatInterface] onResults completed');
+                    console.log(`[ChatInterface] ✓ Calling onResults with ${items.length} items and filter: ${filter}`);
+                    try {
+                      onResults({
+                        items,
+                        filter,
+                        aiResponse: undefined,
+                        append: true // Always append - table only clears when Clear button is clicked
+                      });
+                      console.log('[ChatInterface] ✓ onResults completed successfully');
+                    } catch (err) {
+                      console.error('[ChatInterface] ERROR in onResults:', err);
+                    }
                   } else {
-                    console.warn('[ChatInterface] Received price_data with no items');
+                    console.warn('[ChatInterface] ⚠️ Received price_data with no items (empty result set)');
                   }
+                  console.log('[ChatInterface] ==========================================');
                   break;
                   
                 case 'ai_response_chunk':
@@ -552,9 +618,9 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                                 {executionSteps.slice(0, visibleStepsCount).map((step, idx) => (
                                   <div 
                                     key={idx} 
-                                    className="flex items-start gap-2 text-xs text-gray-700 animate-slideInFromTop leading-[1.75rem] hover:bg-white/50 rounded px-2 py-0.5 -mx-2 transition-all"
+                                    className="flex items-start gap-2.5 text-xs text-gray-700 animate-slideInFromTop leading-[1.6] hover:bg-white/50 rounded px-2 py-1.5 -mx-2 transition-all mb-0.5"
                                   >
-                                    <span className={`flex-shrink-0 font-bold text-[10px] ${
+                                    <span className={`flex-shrink-0 font-bold text-[10px] mt-1 ${
                                       idx === visibleStepsCount - 1 && idx === executionSteps.length - 1 && !activityCompleted
                                         ? 'text-cyan-500 animate-pulse' 
                                         : idx === visibleStepsCount - 1 && !activityCompleted
@@ -563,7 +629,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                                     }`}>
                                       {idx === visibleStepsCount - 1 && !activityCompleted ? '▸' : '✓'}
                                     </span>
-                                    <span className="flex-1 font-medium">{step}</span>
+                                    <span className="flex-1 font-medium break-words leading-[1.6]">{step}</span>
                                   </div>
                                 ))}
                               </div>
