@@ -402,8 +402,8 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                   console.log('[ChatInterface] Received ai_response_complete');
                   aiResponseComplete = true;
                   if (priceDataReceived) {
-                    // Hide streaming response to avoid duplicate display
-                    setStreamingResponse('');
+                    // Keep streaming response visible (don't clear it)
+                    // This ensures the reply bubble continues to show the final content
                     
                     // Update final message
                     const finalContent = fullAiResponse || data.data?.content || 'Response completed';
@@ -589,8 +589,9 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                       <div className="rounded-2xl shadow-xl bg-gradient-to-br from-white/95 via-blue-50/30 to-cyan-50/40 border border-blue-200/40 backdrop-blur-sm overflow-hidden">
                         
                         {/* Agent Activity Section - fixed 3 lines with scroll */}
-                        {executionSteps.length > 0 && (
-                          <div className={`transition-all duration-300 ${streamingResponse || (activityCompleted && msg.content !== 'Searching...') ? 'border-b border-blue-200/30' : ''}`}>
+                        {/* Hide activities when streaming response exists (showing final content) */}
+                        {executionSteps.length > 0 && !streamingResponse && (
+                          <div className={`transition-all duration-300 ${activityCompleted && msg.content !== 'Searching...' ? 'border-b border-blue-200/30' : ''}`}>
                             <div className="p-3">
                               {/* Activity Header */}
                               <div className="flex items-center gap-2 mb-2">
@@ -650,9 +651,9 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                           </div>
                         )}
                         
-                        {/* Final Response Section - only show when streaming or completed */}
-                        {(streamingResponse || (activityCompleted && msg.content !== 'Searching...')) && (
-                          <div className="p-3.5 border-t border-blue-200/30">
+                        {/* Final Response Section - show when streaming (including final content) */}
+                        {streamingResponse && (
+                          <div className="p-3.5">
                             {/* Content */}
                             <div className="markdown-content">
                               <ReactMarkdown 
