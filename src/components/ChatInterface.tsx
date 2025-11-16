@@ -46,7 +46,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     setMessages([
       {
         role: 'assistant',
-        content: 'Hello, great to connect. I’m here to answer any questions you have about Azure.',
+        content: 'Hello! I\'m your Azure Pricing Agent.',
         id: 'welcome-message'
       }
     ]);
@@ -62,18 +62,23 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     }
   }, [messages, streamingResponse, executionSteps]);
 
-  // Auto-scroll Agent Activity to latest content when visible steps are updated
+  // Auto-scroll Agent Activity to show the latest step when visible steps count increases
   useEffect(() => {
     if (activityScrollRef.current && visibleStepsCount > 0) {
-      // Use smooth scrolling for a more elegant effect
-      activityScrollRef.current.scrollTo({
-        top: activityScrollRef.current.scrollHeight,
-        behavior: 'smooth'
+      // Small delay to ensure DOM is updated with the new step
+      requestAnimationFrame(() => {
+        if (activityScrollRef.current) {
+          // Scroll to bottom to show the newest step
+          activityScrollRef.current.scrollTo({
+            top: activityScrollRef.current.scrollHeight,
+            behavior: 'smooth'
+          });
+        }
       });
     }
   }, [visibleStepsCount]);
 
-  // Also scroll when executionSteps content changes (for in-place updates)
+  // Also scroll when executionSteps content changes (for in-place updates like progress bars)
   useEffect(() => {
     if (activityScrollRef.current && executionSteps.length > 0) {
       // Use requestAnimationFrame to ensure DOM has updated
@@ -88,27 +93,28 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     }
   }, [executionSteps]);
 
-  // Force scroll to bottom when activity completes
+  // Ensure the final state is visible at the bottom when activity completes
   useEffect(() => {
     if (activityCompleted && activityScrollRef.current) {
-      // Delay to ensure all DOM updates are complete
+      // Delay to ensure all DOM updates and animations are complete
       setTimeout(() => {
         if (activityScrollRef.current) {
+          // Final scroll to show the completion status
           activityScrollRef.current.scrollTo({
             top: activityScrollRef.current.scrollHeight,
             behavior: 'smooth'
           });
         }
-      }, 200);
+      }, 150); // Slightly longer delay for completion
     }
   }, [activityCompleted]);
 
-  // Gradually display execution steps elegantly
+  // Gradually display execution steps elegantly with 250ms interval
   useEffect(() => {
     if (executionSteps.length > visibleStepsCount) {
       const timer = setTimeout(() => {
         setVisibleStepsCount(prev => prev + 1);
-      }, 30); // Display each step with 30ms delay, faster and more responsive
+      }, 250); // Display each step with 250ms delay for clear visibility
       
       return () => clearTimeout(timer);
     }
@@ -524,7 +530,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     setMessages([
       {
         role: 'assistant',
-        content: 'Hello, great to connect. I’m here to answer any questions you have about Azure',
+        content: 'Hello! I\'m your Azure Pricing Assistant. I can help you find and compare prices for Azure services across different regions. Ask me about VM costs, storage pricing, or any Azure service pricing.',
         id: 'welcome-message'
       }
     ]);
@@ -545,7 +551,6 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 animate-pulse shadow-lg shadow-cyan-500/50"></div>
           <h3 className="text-sm font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Chat</h3>
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gradient-to-r from-cyan-500/10 to-blue-500/10 text-cyan-700 border border-cyan-300/30 font-medium">GPT-5</span>
         </div>
         <button
           onClick={handleClearChat}
@@ -626,8 +631,8 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                                 }}
                               >
                                 {/* Always show initial line first */}
-                                <div className="flex items-start gap-2.5 text-xs text-gray-700 leading-[1.6] px-2 py-1.5">
-                                  <span className={`flex-shrink-0 font-bold text-[10px] mt-1 ${executionSteps.length === 0 && !activityCompleted ? 'text-cyan-500 animate-pulse' : 'text-green-500'}`}>
+                                <div className="flex items-start text-xs text-gray-700 leading-[1.6] hover:bg-white/50 rounded px-2 py-1.5 -mx-2 transition-all mb-0.5">
+                                  <span className={`flex-shrink-0 font-bold text-[10px] mt-1 w-3 ${executionSteps.length === 0 && !activityCompleted ? 'text-cyan-500 animate-pulse' : 'text-green-500'}`}>
                                     {executionSteps.length === 0 && !activityCompleted ? '▸' : '✓'}
                                   </span>
                                   <span className="flex-1 font-medium break-words leading-[1.6]">🚀 Initializing agent...</span>
@@ -636,9 +641,9 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                                 {executionSteps.slice(0, visibleStepsCount).map((step, idx) => (
                                   <div 
                                     key={idx} 
-                                    className="flex items-start gap-2.5 text-xs text-gray-700 animate-slideInFromTop leading-[1.6] hover:bg-white/50 rounded px-2 py-1.5 -mx-2 transition-all mb-0.5"
+                                    className="flex items-start text-xs text-gray-700 animate-slideInFromTop leading-[1.6] hover:bg-white/50 rounded px-2 py-1.5 -mx-2 transition-all mb-0.5"
                                   >
-                                    <span className={`flex-shrink-0 font-bold text-[10px] mt-1 ${
+                                    <span className={`flex-shrink-0 font-bold text-[10px] mt-1 w-3 ${
                                       idx === visibleStepsCount - 1 && idx === executionSteps.length - 1 && !activityCompleted
                                         ? 'text-cyan-500 animate-pulse' 
                                         : idx === visibleStepsCount - 1 && !activityCompleted

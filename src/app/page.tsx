@@ -104,7 +104,7 @@ export default function Home() {
                   </div>
                 </div>
                 <h1 className="text-xl md:text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 via-blue-400 to-purple-400 drop-shadow-lg">
-                  Azure Prices Agent —— an agentic approach for Azure Retail Prices API
+                  Azure Prices Agent —— an agentic approach to querying the Azure Retail Prices API
                 </h1>
               </div>
               
