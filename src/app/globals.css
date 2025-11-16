@@ -72,42 +72,53 @@ body {
   background-clip: padding-box;
 }
 
-/* Agent Activity 滚动条样式 - 仅在需要时显示 */
+/* Agent Activity 滚动条样式 - 优化滚动体验 */
 .agent-activity-scroll {
-  overflow-y: auto; /* 只显示垂直滚动条 */
-  overflow-x: hidden; /* 完全隐藏水平滚动条 */
+  overflow-y: auto;
+  overflow-x: hidden;
   scrollbar-width: thin; /* Firefox */
-  scrollbar-color: transparent transparent; /* Firefox - 默认透明 */
+  scrollbar-color: rgba(6, 182, 212, 0.4) rgba(229, 231, 235, 0.2); /* Firefox */
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+  /* Ensure proper scroll range */
+  scroll-padding-bottom: 0.5rem;
 }
 
 /* 垂直滚动条样式 */
 .agent-activity-scroll::-webkit-scrollbar {
-  width: 4px;
-  height: 0; /* 隐藏水平滚动条 */
+  width: 6px;
+  height: 0;
 }
 
 .agent-activity-scroll::-webkit-scrollbar-track {
-  background: transparent;
-  border-radius: 4px;
+  background: rgba(229, 231, 235, 0.2);
+  border-radius: 6px;
+  margin: 4px 0; /* Ensure full scroll range with margin */
 }
 
-/* 默认状态下滚动条透明(隐藏) */
+/* 默认状态下滚动条可见 */
 .agent-activity-scroll::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 4px;
+  background: rgba(6, 182, 212, 0.4);
+  border-radius: 6px;
+  transition: background 0.2s ease;
+  /* Add border to make thumb smaller and prevent overlap */
+  border: 1px solid transparent;
+  background-clip: padding-box;
 }
 
-/* 鼠标悬停时显示垂直滚动条 */
+/* 鼠标悬停时增强滚动条 */
 .agent-activity-scroll:hover {
-  scrollbar-color: #06b6d4 transparent; /* Firefox - hover时显示 */
+  scrollbar-color: #06b6d4 rgba(229, 231, 235, 0.3);
 }
 
 .agent-activity-scroll:hover::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, #06b6d4, #3b82f6);
+  background-clip: padding-box;
 }
 
 .agent-activity-scroll::-webkit-scrollbar-thumb:active {
   background: linear-gradient(180deg, #0891b2, #2563eb);
+  background-clip: padding-box;
 }
 
 @layer base {

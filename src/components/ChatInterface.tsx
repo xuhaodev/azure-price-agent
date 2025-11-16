@@ -36,44 +36,58 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
   const [activityCompleted, setActivityCompleted] = useState(false); // Track if Agent Activity is completed
   const [aiResponseCompleted, setAiResponseCompleted] = useState(false); // Track if AI response streaming is completed
   const [sessionResponseId, setSessionResponseId] = useState<string | null>(null); // Maintain session context
+  const [currentAssistantId, setCurrentAssistantId] = useState<string | null>(null); // Track current agent run message
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const activityScrollRef = useRef<HTMLDivElement>(null); // Agent Activity scroll container
+  const previousMessageCountRef = useRef(0); // Track previous message count for scroll behavior
+  // Streaming text pacing: buffer raw chunks and emit at ~100 chars/sec
+  const streamingBufferRef = useRef('');
+  const streamingTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     // Add initial message
     setMessages([
       {
         role: 'assistant',
-        content: 'Hello! I\'m your Azure Pricing Agent.',
+        content: 'Hello! I\'m your Azure Pricing Agent. How can I help you today?',
         id: 'welcome-message'
       }
     ]);
   }, []);
 
   useEffect(() => {
-    // Modify scroll logic to only scroll within chat container, not the entire page
-    if (messagesEndRef.current && chatContainerRef.current) {
-      const chatContainer = chatContainerRef.current.querySelector('.overflow-y-auto');
-      if (chatContainer) {
-        chatContainer.scrollTop = chatContainer.scrollHeight;
+    // Only auto-scroll when a new message bubble is added (length increases).
+    // Updates to existing messages (e.g., final response content) won't move the viewport.
+    const currentCount = messages.length;
+    const previousCount = previousMessageCountRef.current;
+
+    if (currentCount > previousCount) {
+      if (messagesEndRef.current && chatContainerRef.current) {
+        const chatContainer = chatContainerRef.current.querySelector('.overflow-y-auto');
+        if (chatContainer) {
+          chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
       }
     }
-  }, [messages, streamingResponse, executionSteps]);
 
-  // Auto-scroll Agent Activity to show the latest step when visible steps count increases
+    previousMessageCountRef.current = currentCount;
+  }, [messages]);
+
+  // Auto-scroll Agent Activity to keep the latest steps fully visible
   useEffect(() => {
     if (activityScrollRef.current && visibleStepsCount > 0) {
-      // Small delay to ensure DOM is updated with the new step
+      // Multiple RAF calls to ensure DOM is fully rendered and measured
       requestAnimationFrame(() => {
-        if (activityScrollRef.current) {
-          // Scroll to bottom to show the newest step
-          activityScrollRef.current.scrollTo({
-            top: activityScrollRef.current.scrollHeight,
-            behavior: 'smooth'
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const el = activityScrollRef.current;
+            if (!el) return;
+            // Force scroll to absolute bottom - add extra pixel to ensure full scroll
+            el.scrollTop = el.scrollHeight;
           });
-        }
+        });
       });
     }
   }, [visibleStepsCount]);
@@ -81,14 +95,16 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
   // Also scroll when executionSteps content changes (for in-place updates like progress bars)
   useEffect(() => {
     if (activityScrollRef.current && executionSteps.length > 0) {
-      // Use requestAnimationFrame to ensure DOM has updated
+      // Multiple RAF calls to ensure DOM has updated completely
       requestAnimationFrame(() => {
-        if (activityScrollRef.current) {
-          activityScrollRef.current.scrollTo({
-            top: activityScrollRef.current.scrollHeight,
-            behavior: 'smooth'
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const el = activityScrollRef.current;
+            if (!el) return;
+            // Force scroll to absolute bottom
+            el.scrollTop = el.scrollHeight;
           });
-        }
+        });
       });
     }
   }, [executionSteps]);
@@ -96,16 +112,20 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
   // Ensure the final state is visible at the bottom when activity completes
   useEffect(() => {
     if (activityCompleted && activityScrollRef.current) {
-      // Delay to ensure all DOM updates and animations are complete
-      setTimeout(() => {
+      // Multiple attempts to ensure scroll reaches bottom
+      const scrollToBottom = () => {
         if (activityScrollRef.current) {
-          // Final scroll to show the completion status
-          activityScrollRef.current.scrollTo({
-            top: activityScrollRef.current.scrollHeight,
-            behavior: 'smooth'
-          });
+          activityScrollRef.current.scrollTop = activityScrollRef.current.scrollHeight;
         }
-      }, 150); // Slightly longer delay for completion
+      };
+      
+      // Immediate scroll
+      scrollToBottom();
+      
+      // Delayed scrolls to catch any late DOM updates
+      setTimeout(scrollToBottom, 50);
+      setTimeout(scrollToBottom, 150);
+      setTimeout(scrollToBottom, 300);
     }
   }, [activityCompleted]);
 
@@ -149,12 +169,19 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     const loadingMsgId = `assistant-${Date.now()}`;
     setMessages(prev => [...prev, { 
       role: 'assistant', 
-      content: 'Preparing query...',
+      content: '', // use animated dots instead of static text
       id: loadingMsgId
     }]);
+    setCurrentAssistantId(loadingMsgId);
     setLoading(true);
     setTypingAnimation(true);
     setStreamingResponse('');
+    // Reset streaming pacing
+    streamingBufferRef.current = '';
+    if (streamingTimerRef.current !== null) {
+      clearInterval(streamingTimerRef.current);
+      streamingTimerRef.current = null;
+    }
     setExecutionSteps([]);
     setVisibleStepsCount(0); // Reset visible step count
     setActivityCompleted(false); // Reset completion status
@@ -403,15 +430,34 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                   break;
                   
                 case 'ai_response_chunk':
-                  // Received part of AI response, append to existing stream response
-                  if (priceDataReceived && data.data.content) {
-                    fullAiResponse += data.data.content;
-                    setStreamingResponse(fullAiResponse);
+                  // Received part of AI response, buffer and pace UI updates (character-level)
+                  if (data.data.content) {
+                    const chunkText: string = data.data.content;
+                    fullAiResponse += chunkText;
+                    // Append raw chunk to buffer
+                    streamingBufferRef.current += chunkText;
+
+                    // Start pacing timer if not running
+                    if (streamingTimerRef.current === null) {
+                      streamingTimerRef.current = window.setInterval(() => {
+                        const bufferText = streamingBufferRef.current;
+
+                        // Nothing left to show yet
+                        if (!bufferText) {
+                          return;
+                        }
+
+                        // Take the next single character to show
+                        const nextChar = bufferText[0];
+                        streamingBufferRef.current = bufferText.slice(1);
+                        setStreamingResponse(prev => prev + nextChar);
+                      }, 10); // 50ms per char => ~20 chars/sec for visible typing effect
+                    }
                   }
                   break;
                   
                 case 'ai_response_complete':
-                  // AI response complete
+                  // AI response complete (stop receiving chunks, but let pacing finish naturally)
                   console.log('[ChatInterface] Received ai_response_complete');
                   aiResponseComplete = true;
                   setAiResponseCompleted(true); // Mark AI response as completed
@@ -500,7 +546,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
         ));
 
         setTypingAnimation(false);
-        setStreamingResponse('');
+        // Don't clear streamingResponse - keep it for display
         setExecutionSteps([]);
       }
       
@@ -508,7 +554,16 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
       console.error('Error:', error);
       
       setTypingAnimation(false);
-      setStreamingResponse('');
+      // Don't clear streamingResponse on error
+      if (streamingTimerRef.current !== null) {
+        clearInterval(streamingTimerRef.current);
+        streamingTimerRef.current = null;
+      }
+      if (streamingBufferRef.current) {
+        const remaining = streamingBufferRef.current;
+        streamingBufferRef.current = '';
+        setStreamingResponse(prev => prev + remaining);
+      }
       
       // Update error message - find the loading message by ID and replace it
       setMessages(prev => prev.map(msg => 
@@ -530,8 +585,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     setMessages([
       {
         role: 'assistant',
-        content: 'Hello! I\'m your Azure Pricing Assistant. I can help you find and compare prices for Azure services across different regions. Ask me about VM costs, storage pricing, or any Azure service pricing.',
-        id: 'welcome-message'
+        content: 'Hello! I\'m Azure Pricing Assistant. How can I help you today?',
       }
     ]);
     setInput('');
@@ -541,6 +595,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     setActivityCompleted(false); // Reset completion status
     setAiResponseCompleted(false); // Reset AI response completion status
     setSessionResponseId(null); // Reset session - next query will be a new session
+    setCurrentAssistantId(null); // Clear current assistant message binding
     onResults({ items: [], filter: '', append: false }); // Clear table for new session
   };
 
@@ -593,19 +648,19 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
               </div>
             )}
 
-            {/* Assistant messages - show unified card when processing/has activity, otherwise normal display */}
+            {/* Assistant messages - show unified card for the current agent run, otherwise normal display */}
             {msg.role === 'assistant' && (
               <>
-                {/* Show unified activity + response card for the last message when loading, has steps, or streaming */}
-                {index === messages.length - 1 && (loading || executionSteps.length > 0 || streamingResponse) ? (
+                {/* Show unified activity + response card for the current agent run */}
+                {msg.id === currentAssistantId ? (
                   <div className="mb-4 flex justify-start">
                     <div className="relative max-w-[85%] mr-auto w-full" style={{ maxWidth: '85%' }}>
                       {/* Unified card with gradient background */}
                       <div className="rounded-2xl shadow-xl bg-gradient-to-br from-white/95 via-blue-50/30 to-cyan-50/40 border border-blue-200/40 backdrop-blur-sm overflow-hidden">
                         
-                        {/* Agent Activity Section - always show when there are steps, keep visible during streaming */}
-                        {(executionSteps.length > 0 || (loading && msg.content === 'Preparing query...')) && (
-                          <div className={`transition-all duration-300 ${streamingResponse ? 'border-b border-blue-200/30' : ''}`}>
+                        {/* Agent Activity Section - always show for current run, even before steps arrive */}
+                        {true && (
+                          <div className={`transition-all duration-300 ${(streamingResponse || msg.content) ? 'border-b border-blue-200/30' : ''}`}>
                             <div className="p-3">
                               {/* Activity Header */}
                               <div className="flex items-center gap-2 mb-2">
@@ -622,28 +677,32 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                                 )}
                               </div>
                               
-                              {/* Activity Steps - strictly 3 lines max with scroll, all steps append after initial line */}
+                              {/* Activity Steps - dynamically sized for 3 visible lines with proper wrapping support */}
                               <div 
                                 ref={activityScrollRef}
-                                className="agent-activity-scroll overflow-y-auto overflow-x-hidden space-y-0.5"
+                                className="agent-activity-scroll overflow-y-auto overflow-x-hidden"
                                 style={{ 
-                                  maxHeight: 'calc(3 * 1.75rem)', // Exactly 3 lines
+                                  // Optimized height for 3 lines of wrapped text
+                                  // Base calculation: ~5.5rem for 3 wrapped lines + margins
+                                  maxHeight: '5.5rem',
+                                  paddingTop: '0.375rem',
+                                  paddingBottom: '0.5rem'
                                 }}
                               >
                                 {/* Always show initial line first */}
-                                <div className="flex items-start text-xs text-gray-700 leading-[1.6] hover:bg-white/50 rounded px-2 py-1.5 -mx-2 transition-all mb-0.5">
-                                  <span className={`flex-shrink-0 font-bold text-[10px] mt-1 w-3 ${executionSteps.length === 0 && !activityCompleted ? 'text-cyan-500 animate-pulse' : 'text-green-500'}`}>
+                                <div className="flex items-start text-xs text-gray-700 leading-relaxed hover:bg-white/40 rounded-md px-2.5 py-1 -mx-2 mb-1 transition-all">
+                                  <span className={`flex-shrink-0 font-bold text-[10px] mt-0.5 w-4 ${executionSteps.length === 0 && !activityCompleted ? 'text-cyan-500 animate-pulse' : 'text-green-500'}`}>
                                     {executionSteps.length === 0 && !activityCompleted ? '▸' : '✓'}
                                   </span>
-                                  <span className="flex-1 font-medium break-words leading-[1.6]">🚀 Initializing agent...</span>
+                                  <span className="flex-1 font-medium break-words leading-relaxed">🚀 Initializing agent...</span>
                                 </div>
                                 {/* Append all subsequent execution steps */}
                                 {executionSteps.slice(0, visibleStepsCount).map((step, idx) => (
                                   <div 
                                     key={idx} 
-                                    className="flex items-start text-xs text-gray-700 animate-slideInFromTop leading-[1.6] hover:bg-white/50 rounded px-2 py-1.5 -mx-2 transition-all mb-0.5"
+                                    className="flex items-start text-xs text-gray-700 animate-slideInFromTop leading-relaxed hover:bg-white/40 rounded-md px-2.5 py-1 -mx-2 mb-1 transition-all"
                                   >
-                                    <span className={`flex-shrink-0 font-bold text-[10px] mt-1 w-3 ${
+                                    <span className={`flex-shrink-0 font-bold text-[10px] mt-0.5 w-4 ${
                                       idx === visibleStepsCount - 1 && idx === executionSteps.length - 1 && !activityCompleted
                                         ? 'text-cyan-500 animate-pulse' 
                                         : idx === visibleStepsCount - 1 && !activityCompleted
@@ -652,7 +711,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                                     }`}>
                                       {idx === visibleStepsCount - 1 && !activityCompleted ? '▸' : '✓'}
                                     </span>
-                                    <span className="flex-1 font-medium break-words leading-[1.6]">{step}</span>
+                                    <span className="flex-1 font-medium break-words leading-relaxed">{step}</span>
                                   </div>
                                 ))}
                               </div>
@@ -660,39 +719,41 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                           </div>
                         )}
                         
-                        {/* Final Response Section - show when streaming (including final content) */}
-                        {streamingResponse && (
-                          <div className="p-3.5">
-                            {/* Content */}
-                            <div className="markdown-content">
-                              <ReactMarkdown 
-                                remarkPlugins={[remarkGfm]}
-                                skipHtml={true}
-                                components={{
-                                  pre: (props) => <pre className="bg-gray-800 text-white p-2.5 rounded-md overflow-auto my-1.5 text-xs" {...props} />,
-                                  code: (props) => <code className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono" {...props} />,
-                                  p: (props) => <p className="text-xs md:text-sm mb-1.5 last:mb-0" {...props} />,
-                                  h1: (props) => <h1 className="text-base font-bold mb-2" {...props} />,
-                                  h2: (props) => <h2 className="text-sm font-bold mb-1.5" {...props} />,
-                                  h3: (props) => <h3 className="text-sm font-semibold mb-1" {...props} />,
-                                  ul: (props) => <ul className="text-xs md:text-sm list-disc ml-4 mb-1.5" {...props} />,
-                                  ol: (props) => <ol className="text-xs md:text-sm list-decimal ml-4 mb-1.5" {...props} />,
-                                  li: (props) => <li className="mb-0.5" {...props} />,
-                                  table: (props) => (
-                                    <div className="overflow-x-auto my-1.5 rounded-lg shadow-sm">
-                                      <table className="w-full text-[10px] border-collapse border border-gray-300 bg-white" {...props} />
-                                    </div>
-                                  ),
-                                  thead: (props) => <thead className="bg-gradient-to-r from-gray-100 to-gray-200" {...props} />,
-                                  th: (props) => <th className="border border-gray-300 px-2 py-1.5 text-left font-bold text-gray-700 whitespace-normal break-words" style={{ maxWidth: '200px', minWidth: '80px' }} {...props} />,
-                                  td: (props) => <td className="border border-gray-300 px-2 py-1.5 text-gray-600 whitespace-normal break-words align-top" style={{ maxWidth: '200px', minWidth: '80px' }} {...props} />
-                                }}
-                              >
-                                {streamingResponse || msg.content}
-                              </ReactMarkdown>
+                        {/* Final Response Section - always show when there is any text (streaming or final) */}
+                        {(() => {
+                          const displayText = streamingResponse || msg.content;
+                          return displayText ? (
+                            <div className="p-3.5">
+                              <div className="markdown-content">
+                                <ReactMarkdown 
+                                  remarkPlugins={[remarkGfm]}
+                                  skipHtml={true}
+                                  components={{
+                                    pre: (props) => <pre className="bg-gray-800 text-white p-2.5 rounded-md overflow-auto my-1.5 text-xs" {...props} />,
+                                    code: (props) => <code className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono" {...props} />, 
+                                    p: (props) => <p className="text-xs md:text-sm mb-1.5 last:mb-0" {...props} />,
+                                    h1: (props) => <h1 className="text-base font-bold mb-2" {...props} />, 
+                                    h2: (props) => <h2 className="text-sm font-bold mb-1.5" {...props} />, 
+                                    h3: (props) => <h3 className="text-sm font-semibold mb-1" {...props} />, 
+                                    ul: (props) => <ul className="text-xs md:text-sm list-disc ml-4 mb-1.5" {...props} />, 
+                                    ol: (props) => <ol className="text-xs md:text-sm list-decimal ml-4 mb-1.5" {...props} />, 
+                                    li: (props) => <li className="mb-0.5" {...props} />, 
+                                    table: (props) => (
+                                      <div className="overflow-x-auto my-1.5 rounded-lg shadow-sm">
+                                        <table className="w-full text-[10px] border-collapse border border-gray-300 bg-white" {...props} />
+                                      </div>
+                                    ),
+                                    thead: (props) => <thead className="bg-gradient-to-r from-gray-100 to-gray-200" {...props} />,
+                                    th: (props) => <th className="border border-gray-300 px-2 py-1.5 text-left font-bold text-gray-700 whitespace-normal break-words" style={{ maxWidth: '200px', minWidth: '80px' }} {...props} />,
+                                    td: (props) => <td className="border border-gray-300 px-2 py-1.5 text-gray-600 whitespace-normal break-words align-top" style={{ maxWidth: '200px', minWidth: '80px' }} {...props} />
+                                  }}
+                                >
+                                  {displayText}
+                                </ReactMarkdown>
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          ) : null;
+                        })()}
                       </div>
                       
                       {/* Status indicator below card */}

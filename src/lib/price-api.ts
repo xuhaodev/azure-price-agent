@@ -39,6 +39,7 @@ type PricingWorkflowHooks = {
     onStepUpdate?: (step: string) => void | Promise<void>;
     onToolCallStart?: (toolCall: { name: string; arguments: string }) => void | Promise<void>;
     onToolCallComplete?: (toolCall: { name: string; resultCount: number }) => void | Promise<void>;
+    onTextChunk?: (chunk: string) => void | Promise<void>; // Real-time streaming text output
 };
 
 type PricingWorkflowResult = {
@@ -176,16 +177,19 @@ function extractUnprocessedToolCalls(response: Response, processedIds: Set<strin
 
 function parseQueryFilter(toolCall: ResponseFunctionToolCallItem): string {
     try {
-        const parsedArgs = JSON.parse(toolCall.arguments ?? "{}");
+        const rawArgs = toolCall.arguments ?? "{}";
+        const parsedArgs = JSON.parse(rawArgs);
         const queryFilter = parsedArgs.query;
 
         if (!queryFilter || typeof queryFilter !== 'string') {
+            console.error('[parseQueryFilter] Invalid or missing "query" field in tool arguments:', parsedArgs);
             throw new Error('Invalid query filter generated');
         }
 
         return queryFilter;
     } catch (error) {
-        console.error('Failed to parse tool arguments:', error);
+        console.error('Failed to parse tool arguments for tool_call_id', toolCall.call_id, 'arguments:', toolCall.arguments);
+        console.error('Parse error detail:', error);
         throw new Error('Invalid tool arguments received');
     }
 }
@@ -516,9 +520,9 @@ async function executePricingWorkflow(
                 break;
                 
             case 'response.output_text.delta':
-                // Streaming text delta - could be used for real-time display
-                if ('delta' in event && event.delta) {
-                    // Text delta available for streaming (future enhancement)
+                // Streaming text delta - forward directly to client for real-time display
+                if ('delta' in event && event.delta && hooks.onTextChunk) {
+                    await hooks.onTextChunk(event.delta as string);
                 }
                 break;
                 
@@ -627,19 +631,50 @@ async function executePricingWorkflow(
 
         const toolOutputs: ResponseInput = [];
 
+        // Track whether this batch of tool calls had any invalid arguments or no-result cases
+        let hadInvalidArguments = false;
+        let hadNoResults = false;
+
         for (let i = 0; i < toolCalls.length; i++) {
             const toolCall = toolCalls[i];
-            let queryFilter = parseQueryFilter(toolCall);
-            
+
+            // Single-attempt tool execution; retry is delegated to the agent via analysis loop
+            let queryFilter: string;
+            try {
+                queryFilter = parseQueryFilter(toolCall);
+            } catch (error) {
+                console.error(`[ToolCall ${i + 1}/${toolCalls.length}] Invalid tool arguments:`, error);
+                hadInvalidArguments = true;
+                if (hooks.onStepUpdate) {
+                    const msg = error instanceof Error ? error.message : 'Invalid tool arguments';
+                    await hooks.onStepUpdate(`⚠️ Tool call ${i + 1}/${toolCalls.length} arguments invalid: ${msg}`);
+                }
+
+                // Immediately return structured feedback so the agent can regenerate a new tool call
+                toolOutputs.push({
+                    type: 'function_call_output',
+                    call_id: toolCall.call_id,
+                    output: JSON.stringify({
+                        error: true,
+                        reason: 'invalid_arguments',
+                        message: 'Tool call arguments were invalid. The "query" field is missing or malformed.',
+                        rawArguments: toolCall.arguments,
+                        instruction: 'You MUST regenerate a new odata_query call based on the original natural language question, ensuring a valid "query" string is provided before responding to the user. Do not answer the question until a valid query has been executed or all retry attempts have been exhausted.'
+                    })
+                });
+                processedCalls.add(toolCall.call_id);
+                continue; // move to next tool call; agent may later issue a new one
+            }
+        
             // Fix OData spelling and syntax errors automatically
             queryFilter = fixODataQuerySpelling(queryFilter);
-            
+        
             // Log OData query to server terminal for diagnostics
             console.log('\n' + '='.repeat(80));
             console.log(`[Agent OData Query ${i + 1}/${toolCalls.length}]`);
             console.log('Filter:', queryFilter);
             console.log('='.repeat(80) + '\n');
-            
+        
             // Show the actual query being executed
             if (hooks.onStepUpdate) {
                 // Extract key parts from the query for display
@@ -655,7 +690,7 @@ async function executePricingWorkflow(
                 await hooks.onStepUpdate(`🔎 ${queryDesc}`);
             }
 
-            // Use retry mechanism with query broadening
+            // Use retry mechanism with query broadening (HTTP layer only)
             let priceResult;
             try {
                 priceResult = await fetchPricesWithRetry(queryFilter, {
@@ -669,21 +704,21 @@ async function executePricingWorkflow(
                     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
                     await hooks.onStepUpdate(`❌ Query ${i + 1}/${toolCalls.length} failed: ${errorMsg}`);
                 }
-                
-                // Return error information to agent so it can adjust
+
+                // Return error information to agent so it can regenerate a new tool call
                 toolOutputs.push({
                     type: 'function_call_output',
                     call_id: toolCall.call_id,
                     output: JSON.stringify({
                         error: true,
+                        reason: 'execution_failed',
                         message: error instanceof Error ? error.message : 'Query execution failed',
                         originalFilter: queryFilter,
-                        suggestion: 'The OData query syntax is invalid. Please check: 1) All quotes are properly closed, 2) Parentheses are balanced, 3) Field names are correct (armRegionName, armSkuName, etc), 4) Use tolower() for case-insensitive matching'
+                        instruction: 'Please generate a simpler or corrected OData filter and call odata_query again based on the original question.'
                     })
                 });
-                
                 processedCalls.add(toolCall.call_id);
-                continue; // Skip to next query instead of failing entire workflow
+                continue; // move to next tool call
             }
 
             // Log query result to terminal
@@ -697,6 +732,30 @@ async function executePricingWorkflow(
                 Items: priceResult.Items,
                 filter: priceResult.finalFilter // Use the final filter that actually returned results
             };
+
+            // If 0 results even after HTTP-level retry/broadening, immediately ask the agent to try a new filter
+            if (priceResult.Items.length === 0) {
+                hadNoResults = true;
+                if (hooks.onStepUpdate) {
+                    await hooks.onStepUpdate(`⚠️ Query ${i + 1}/${toolCalls.length}: No results found after ${priceResult.attemptCount} attempts. Asking agent to try a different filter...`);
+                }
+
+                toolOutputs.push({
+                    type: 'function_call_output',
+                    call_id: toolCall.call_id,
+                    output: JSON.stringify({
+                        error: true,
+                        reason: 'no_results',
+                        message: 'No results were found for this filter even after broadening.',
+                        originalFilter: queryFilter,
+                        finalFilter: priceResult.finalFilter,
+                        attemptCount: priceResult.attemptCount,
+                        instruction: 'You MUST generate a new odata_query call with a different OData filter based on the user\'s natural language question (e.g., broaden keywords, adjust region or SKU) before responding to the user. Do not answer the question until a valid query has been executed or all retry attempts have been exhausted.'
+                    })
+                });
+                processedCalls.add(toolCall.call_id);
+                continue;
+            }
 
             // Notify progress with more details
             if (hooks.onStepUpdate) {
@@ -717,7 +776,7 @@ async function executePricingWorkflow(
                 }
             }
 
-            // Send price data via SSE - even if empty (for consistency)
+            // Send price data via SSE
             if (hooks.onPriceData) {
                 const priceDataToSend = {
                     ...latestPricingContext,
@@ -740,11 +799,7 @@ async function executePricingWorkflow(
                     Items: priceResult.Items,
                     filter: priceResult.finalFilter,
                     attemptCount: priceResult.attemptCount,
-                    originalFilter: queryFilter,
-                    // Add helpful context when no results found
-                    ...(priceResult.Items.length === 0 ? {
-                        suggestion: 'No results found. Consider: 1) Check region name spelling, 2) Try broader SKU/service name keywords, 3) Verify the service exists in this region, 4) Use contains() instead of exact match'
-                    } : {})
+                    originalFilter: queryFilter
                 })
             });
 
@@ -775,14 +830,20 @@ async function executePricingWorkflow(
         }
         
         // Check if agent wants to retry with new queries when results are empty
-        const hasNewToolCalls = extractUnprocessedToolCalls(analysisResponse, processedCalls).length > 0;
+        const newToolCalls = extractUnprocessedToolCalls(analysisResponse, processedCalls);
+        const hasNewToolCalls = newToolCalls.length > 0;
         const hasEmptyResults = !latestPricingContext || latestPricingContext.Items.length === 0;
-        
-        if (hasNewToolCalls && hasEmptyResults) {
-            console.log('[Agent Retry] Agent is attempting new queries after empty results');
+
+        // Retry policy:
+        // - If arguments were invalid OR query returned no results, and the agent
+        //   proposes new tool calls, we MUST process them before answering.
+        if (hasNewToolCalls && (hadInvalidArguments || hadNoResults || hasEmptyResults)) {
+            console.log('[Agent Retry] Agent is attempting new queries after invalid arguments / empty results');
             if (hooks.onStepUpdate) {
                 await hooks.onStepUpdate('🔄 Adjusting search strategy based on results...');
             }
+            // Update response reference so the while-loop can process the newly proposed calls
+            response = analysisResponse;
             // Continue the loop to process new tool calls
             continue;
         }
@@ -816,7 +877,7 @@ async function executePricingWorkflow(
             }
         }
         
-        // Update response for next iteration
+        // No further tool calls to process under retry policy; finalize with this analysis response
         response = analysisResponse;
     }
 
@@ -938,6 +999,15 @@ export async function queryPricingWithStreamingResponse(
                         // Flush immediately for Azure Web App
                         await new Promise(resolve => setTimeout(resolve, 0));
                     },
+                    onTextChunk: async (chunk) => {
+                        // Stream text chunks directly from OpenAI API - no artificial delay
+                        const chunkPayload = {
+                            type: 'ai_response_chunk',
+                            data: { content: chunk }
+                        };
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunkPayload)}\n\n`));
+                        await new Promise(resolve => setTimeout(resolve, 0));
+                    },
                     onPriceData: async (data) => {
                         // Validate data structure
                         if (!data || !Array.isArray(data.Items)) {
@@ -986,23 +1056,11 @@ export async function queryPricingWithStreamingResponse(
                 console.log('[Streaming] has pricingContext:', !!pricingContext);
 
                 if (!pricingContext) {
-                    console.log('[Streaming] No pricing context - streaming direct_response');
+                    console.log('[Streaming] No pricing context - sending direct_response');
                     
                     const responseText = aiResponse || 'No response generated';
-                    const words = responseText.split(/(\s+)/);
                     
-                    for (const word of words) {
-                        if (word) {
-                            const chunkPayload = {
-                                type: 'ai_response_chunk',
-                                data: { content: word }
-                            };
-                            controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunkPayload)}\n\n`));
-                            await new Promise(resolve => setTimeout(resolve, 20));
-                        }
-                    }
-                    
-                    // Send completion
+                    // Send complete response directly - text was already streamed via onTextChunk
                     const completionPayload = {
                         type: 'ai_response_complete',
                         data: { content: responseText }
@@ -1013,25 +1071,8 @@ export async function queryPricingWithStreamingResponse(
                 }
 
                 if (aiResponse) {
-                    console.log('[Streaming] Streaming ai_response with', aiResponse.length, 'chars');
-                    
-                    // Stream response character by character for typing effect
-                    const words = aiResponse.split(/(\s+)/); // Split by whitespace but keep the separators
-                    
-                    for (const word of words) {
-                        if (word) {
-                            const chunkPayload = {
-                                type: 'ai_response_chunk',
-                                data: { content: word }
-                            };
-                            controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunkPayload)}\n\n`));
-                            
-                            // Small delay for smooth typing effect (adjust as needed)
-                            await new Promise(resolve => setTimeout(resolve, 20));
-                        }
-                    }
-                    
-                    console.log('[Streaming] Finished streaming response');
+                    console.log('[Streaming] Response ready with', aiResponse.length, 'chars');
+                    // Text was already streamed via onTextChunk during workflow execution
                 } else {
                     console.warn('[Streaming] WARNING: aiResponse is empty but pricingContext exists!');
                 }
