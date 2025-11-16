@@ -6,7 +6,6 @@ import type {
 } from 'openai/resources/responses/responses';
 import { agentPrompt } from './agentPrompt';
 import { azureVmSize } from './azurevmsize';
-import { azureRegions } from './azure-regions';
 
 // Responses API function tool definition (top-level name/description/parameters)
 const PRICE_QUERY_TOOL = {
@@ -80,12 +79,52 @@ function getDeploymentName() {
     return process.env.AZURE_OPENAI_DEPLOYMENT_NAME || 'gpt-5-codex';
 }
 
-function buildConversation(prompt: string): ResponseInput {
-    // Compress region mapping to short format
-    const compactRegions = Object.entries(azureRegions)
-        .map(([code, name]) => `${code}:${name}`)
-        .join('|');
+/**
+ * Fix common OData query spelling and syntax errors
+ * This handles model output errors without constraining the prompt
+ */
+function fixODataQuerySpelling(query: string): string {
+    let fixed = query;
     
+    // Fix common tolower spelling mistakes (case-insensitive)
+    // tolower, toLower, Tolower, TOLOWER, tolowr, tolwer, etc.
+    fixed = fixed.replace(/to[lL]o[wW]?[er]+r?/g, 'tolower');
+    
+    // Fix field name case sensitivity
+    fixed = fixed
+        .replace(/armregionname/gi, 'armRegionName')
+        .replace(/armskuname/gi, 'armSkuName')
+        .replace(/metername/gi, 'meterName')
+        .replace(/productname/gi, 'productName')
+        .replace(/servicename/gi, 'serviceName')
+        .replace(/pricetype/gi, 'priceType')
+        .replace(/currencycode/gi, 'currencyCode');
+    
+    // Fix logical operators (must be lowercase)
+    fixed = fixed.replace(/\bAND\b/g, 'and')
+                 .replace(/\bOR\b/g, 'or')
+                 .replace(/\bNOT\b/g, 'not')
+                 .replace(/\bEQ\b/g, 'eq')
+                 .replace(/\bNE\b/g, 'ne');
+    
+    // Fix contains function spacing issues
+    // contains ( tolower( -> contains(tolower(
+    fixed = fixed.replace(/contains\s*\(\s*/g, 'contains(');
+    fixed = fixed.replace(/tolower\s*\(\s*/g, 'tolower(');
+    
+    // Remove trailing 'and' or 'or'
+    fixed = fixed.replace(/\s+(and|or)\s*$/i, '');
+    
+    // Log if any corrections were made
+    if (fixed !== query) {
+        console.log('[OData Fix] Original:', query);
+        console.log('[OData Fix] Corrected:', fixed);
+    }
+    
+    return fixed;
+}
+
+function buildConversation(prompt: string): ResponseInput {
     // Compress VM types to short format
     const compactVmTypes = azureVmSize
         .map(vm => `${vm.family}[${vm.type}]:${vm.keywords}`)
@@ -106,7 +145,7 @@ function buildConversation(prompt: string): ResponseInput {
             content: [
                 {
                     type: "input_text",
-                    text: `Region codes: ${compactRegions}\nVM families: ${compactVmTypes}`
+                    text: `VM families: ${compactVmTypes}`
                 }
             ]
         },
@@ -426,6 +465,8 @@ async function executePricingWorkflow(
         model,
         input: buildConversation(prompt),
         tools: [PRICE_QUERY_TOOL],
+        tool_choice: "auto", // Allow model to decide when to call tools
+        parallel_tool_calls: false, // Disable parallel calls, ensure one tool call at a time
         reasoning: { effort: "medium", summary: "auto" }, // Use medium effort to get more reasoning details
         max_output_tokens: 2000,
         stream: true, // Enable streaming
@@ -439,12 +480,39 @@ async function executePricingWorkflow(
 
     // Process streaming events
     for await (const event of stream) {
-        console.log('[DEBUG] Stream event:', event.type);
+        // Only log important events to avoid flooding the console
+        const isImportantEvent = [
+            'response.created',
+            'response.output_item.done',
+            'response.completed',
+            'response.incomplete',
+            'error'
+        ].includes(event.type);
+        
+        if (isImportantEvent) {
+            console.log('[DEBUG] Stream event:', event.type);
+        }
+        
+        // Always update currentResponse when available in the event
+        if ('response' in event && event.response) {
+            currentResponse = event.response as Response;
+        }
         
         switch (event.type) {
             case 'response.created':
             case 'response.in_progress':
                 // Response is being created/processed
+                break;
+                
+            case 'response.reasoning_summary_text.delta':
+            case 'response.reasoning_summary_text.done':
+            case 'response.reasoning_summary_part.done':
+                // Reasoning events - response object is being updated
+                break;
+                
+            case 'response.function_call_arguments.delta':
+            case 'response.function_call_arguments.done':
+                // Function call arguments streaming - silent processing
                 break;
                 
             case 'response.output_text.delta':
@@ -486,6 +554,18 @@ async function executePricingWorkflow(
                 console.log('[DEBUG] Response completed');
                 break;
                 
+            case 'response.incomplete':
+                // Response ended but incomplete (e.g., token limit reached)
+                // Use currentResponse as the final response
+                if (currentResponse) {
+                    fullResponse = currentResponse;
+                    console.log('[DEBUG] Response incomplete but usable');
+                } else if ('response' in event && event.response) {
+                    fullResponse = event.response as Response;
+                    console.log('[DEBUG] Response incomplete, using event response');
+                }
+                break;
+                
             case 'error':
                 console.error('[DEBUG] Stream error:', event);
                 const errorMsg = 'error' in event && event.error ? 
@@ -494,10 +574,7 @@ async function executePricingWorkflow(
                 throw new Error(errorMsg);
                 
             default:
-                // Store response updates during streaming
-                if ('response' in event && event.response) {
-                    currentResponse = event.response as Response;
-                }
+                // Other event types are handled by the response update at the top of the loop
                 break;
         }
     }
@@ -554,13 +631,8 @@ async function executePricingWorkflow(
             const toolCall = toolCalls[i];
             let queryFilter = parseQueryFilter(toolCall);
             
-            // Fix OData filter case sensitivity issues
-            queryFilter = queryFilter
-                .replace(/armregionname/gi, 'armRegionName')
-                .replace(/armskuname/gi, 'armSkuName')
-                .replace(/metername/gi, 'meterName')
-                .replace(/productname/gi, 'productName')
-                .replace(/servicename/gi, 'serviceName');
+            // Fix OData spelling and syntax errors automatically
+            queryFilter = fixODataQuerySpelling(queryFilter);
             
             // Log OData query to server terminal for diagnostics
             console.log('\n' + '='.repeat(80));
@@ -688,6 +760,8 @@ async function executePricingWorkflow(
             model,
             previous_response_id: response.id,
             input: toolOutputs,
+            tool_choice: "auto", // Allow model to decide
+            parallel_tool_calls: false, // One tool call at a time
             reasoning: { effort: "medium", "summary": "auto" },
             max_output_tokens: 2000
         });

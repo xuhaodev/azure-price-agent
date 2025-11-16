@@ -34,6 +34,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
   const [executionSteps, setExecutionSteps] = useState<string[]>([]);
   const [visibleStepsCount, setVisibleStepsCount] = useState(0); // Control visible step count
   const [activityCompleted, setActivityCompleted] = useState(false); // Track if Agent Activity is completed
+  const [aiResponseCompleted, setAiResponseCompleted] = useState(false); // Track if AI response streaming is completed
   const [sessionResponseId, setSessionResponseId] = useState<string | null>(null); // Maintain session context
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -107,7 +108,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     if (executionSteps.length > visibleStepsCount) {
       const timer = setTimeout(() => {
         setVisibleStepsCount(prev => prev + 1);
-      }, 80); // Display each step with 80ms delay, fast and elegant
+      }, 30); // Display each step with 30ms delay, faster and more responsive
       
       return () => clearTimeout(timer);
     }
@@ -142,7 +143,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     const loadingMsgId = `assistant-${Date.now()}`;
     setMessages(prev => [...prev, { 
       role: 'assistant', 
-      content: 'Searching...',
+      content: 'Preparing query...',
       id: loadingMsgId
     }]);
     setLoading(true);
@@ -151,6 +152,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     setExecutionSteps([]);
     setVisibleStepsCount(0); // Reset visible step count
     setActivityCompleted(false); // Reset completion status
+    setAiResponseCompleted(false); // Reset AI response completion status
 
     // In same session, all price data is appended to table
     // Only Clear button will reset the table
@@ -293,6 +295,11 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                   // Received execution step update
                   const newMessage = data.data.message;
                   
+                  // Hide "Searching..." animation immediately when first step arrives
+                  if (executionSteps.length === 0) {
+                    setTypingAnimation(false);
+                  }
+                  
                   setExecutionSteps(prev => {
                     // Check for query start pattern
                     const queryStartMatch = newMessage.match(/^🔎 Query (\d+)\/(\d+)/);
@@ -401,6 +408,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                   // AI response complete
                   console.log('[ChatInterface] Received ai_response_complete');
                   aiResponseComplete = true;
+                  setAiResponseCompleted(true); // Mark AI response as completed
                   if (priceDataReceived) {
                     // Keep streaming response visible (don't clear it)
                     // This ensures the reply bubble continues to show the final content
@@ -425,6 +433,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                   // Direct response (when agent doesn't call tool)
                   // Do NOT clear/update price results - keep existing results visible
                   aiResponseComplete = true;
+                  setAiResponseCompleted(true); // Mark AI response as completed
                   
                   // Update message content
                   setMessages(prev => prev.map(msg => 
@@ -524,6 +533,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
     setExecutionSteps([]);
     setVisibleStepsCount(0); // Reset visible step count
     setActivityCompleted(false); // Reset completion status
+    setAiResponseCompleted(false); // Reset AI response completion status
     setSessionResponseId(null); // Reset session - next query will be a new session
     onResults({ items: [], filter: '', append: false }); // Clear table for new session
   };
@@ -581,17 +591,16 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
             {/* Assistant messages - show unified card when processing/has activity, otherwise normal display */}
             {msg.role === 'assistant' && (
               <>
-                {/* Show unified activity + response card for the last message when there are execution steps or streaming */}
-                {index === messages.length - 1 && (executionSteps.length > 0 || streamingResponse) ? (
+                {/* Show unified activity + response card for the last message when loading, has steps, or streaming */}
+                {index === messages.length - 1 && (loading || executionSteps.length > 0 || streamingResponse) ? (
                   <div className="mb-4 flex justify-start">
                     <div className="relative max-w-[85%] mr-auto w-full" style={{ maxWidth: '85%' }}>
                       {/* Unified card with gradient background */}
                       <div className="rounded-2xl shadow-xl bg-gradient-to-br from-white/95 via-blue-50/30 to-cyan-50/40 border border-blue-200/40 backdrop-blur-sm overflow-hidden">
                         
-                        {/* Agent Activity Section - fixed 3 lines with scroll */}
-                        {/* Hide activities when streaming response exists (showing final content) */}
-                        {executionSteps.length > 0 && !streamingResponse && (
-                          <div className={`transition-all duration-300 ${activityCompleted && msg.content !== 'Searching...' ? 'border-b border-blue-200/30' : ''}`}>
+                        {/* Agent Activity Section - always show when there are steps, keep visible during streaming */}
+                        {(executionSteps.length > 0 || (loading && msg.content === 'Preparing query...')) && (
+                          <div className={`transition-all duration-300 ${streamingResponse ? 'border-b border-blue-200/30' : ''}`}>
                             <div className="p-3">
                               {/* Activity Header */}
                               <div className="flex items-center gap-2 mb-2">
@@ -608,7 +617,7 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                                 )}
                               </div>
                               
-                              {/* Activity Steps - strictly 3 lines max with scroll */}
+                              {/* Activity Steps - strictly 3 lines max with scroll, all steps append after initial line */}
                               <div 
                                 ref={activityScrollRef}
                                 className="agent-activity-scroll overflow-y-auto overflow-x-hidden space-y-0.5"
@@ -616,6 +625,14 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                                   maxHeight: 'calc(3 * 1.75rem)', // Exactly 3 lines
                                 }}
                               >
+                                {/* Always show initial line first */}
+                                <div className="flex items-start gap-2.5 text-xs text-gray-700 leading-[1.6] px-2 py-1.5">
+                                  <span className={`flex-shrink-0 font-bold text-[10px] mt-1 ${executionSteps.length === 0 && !activityCompleted ? 'text-cyan-500 animate-pulse' : 'text-green-500'}`}>
+                                    {executionSteps.length === 0 && !activityCompleted ? '▸' : '✓'}
+                                  </span>
+                                  <span className="flex-1 font-medium break-words leading-[1.6]">🚀 Initializing agent...</span>
+                                </div>
+                                {/* Append all subsequent execution steps */}
                                 {executionSteps.slice(0, visibleStepsCount).map((step, idx) => (
                                   <div 
                                     key={idx} 
@@ -633,19 +650,6 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                                     <span className="flex-1 font-medium break-words leading-[1.6]">{step}</span>
                                   </div>
                                 ))}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                        
-                        {/* Processing Animation - show below activity while processing */}
-                        {executionSteps.length > 0 && !streamingResponse && msg.content === 'Searching...' && (
-                          <div className="px-3.5 py-3 border-t border-blue-200/30">
-                            <div className="flex justify-center items-center">
-                              <div className="flex space-x-1.5">
-                                <div className="w-2 h-2 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                                <div className="w-2 h-2 bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                                <div className="w-2 h-2 bg-gradient-to-r from-indigo-400 to-purple-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                               </div>
                             </div>
                           </div>
@@ -689,24 +693,29 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                       {/* Status indicator below card */}
                       <div className="flex items-center gap-1.5 text-xs mt-1.5 px-1">
                         <div className={`w-1.5 h-1.5 rounded-full ${
-                          activityCompleted && !streamingResponse && msg.content !== 'Searching...'
+                          aiResponseCompleted
                             ? 'bg-green-500'
+                            : streamingResponse
+                            ? 'bg-cyan-500 animate-pulse'
                             : 'bg-gradient-to-r from-cyan-400 to-blue-500 animate-pulse'
                         }`}></div>
                         <span className="text-gray-500 font-medium bg-gradient-to-r from-gray-600 to-gray-500 bg-clip-text text-transparent">
                           Azure Prices Agent
                         </span>
-                        {!activityCompleted && (
+                        {/* Processing: 推理查询时 (没有流式输出 且 AI 未完成) */}
+                        {!streamingResponse && !aiResponseCompleted && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 border border-blue-300/30 animate-pulse">
                             Processing...
                           </span>
                         )}
-                        {activityCompleted && (streamingResponse || msg.content === 'Searching...') && (
+                        {/* Typing: 流式输出时 (有流式输出 且 AI 未完成) */}
+                        {streamingResponse && !aiResponseCompleted && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-600 border border-cyan-300/30 animate-pulse">
                             Typing...
                           </span>
                         )}
-                        {activityCompleted && !streamingResponse && msg.content !== 'Searching...' && (
+                        {/* Completed: 输出结束后 (AI 已完成) */}
+                        {aiResponseCompleted && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-600 border border-green-300/30">
                             Completed
                           </span>
@@ -728,8 +737,8 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
                       }}
                     >
                       <div className="p-3.5 rounded-2xl shadow-lg bg-white/90 text-gray-800 border border-gray-200/50 backdrop-blur-sm">
-                        <div className={`markdown-content ${typingAnimation && msg.content === 'Searching...' ? 'animate-pulse' : ''}`}>
-                          {typingAnimation && msg.content === 'Searching...' ? (
+                        <div className={`markdown-content ${typingAnimation && msg.content === 'Preparing query...' ? 'animate-pulse' : ''}`}>
+                          {typingAnimation && msg.content === 'Preparing query...' ? (
                             <div className="flex items-center space-x-1.5 h-6">
                               <div className="w-2.5 h-2.5 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full animate-bounce shadow-md shadow-cyan-500/50" style={{ animationDelay: '0ms' }}></div>
                               <div className="w-2.5 h-2.5 bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full animate-bounce shadow-md shadow-blue-500/50" style={{ animationDelay: '150ms' }}></div>
