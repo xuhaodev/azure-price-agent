@@ -81,15 +81,38 @@ function getDeploymentName() {
 }
 
 /**
- * Fix common OData query spelling and syntax errors
- * This handles model output errors without constraining the prompt
+ * Validate and fix common OData query spelling and syntax errors
+ * Returns { valid: boolean, fixed: string, errors: string[] }
  */
-function fixODataQuerySpelling(query: string): string {
-    let fixed = query;
+function validateAndFixODataQuery(query: string): { valid: boolean, fixed: string, errors: string[] } {
+    const errors: string[] = [];
+    let fixed = query.trim();
+    
+    // Check for empty query
+    if (!fixed) {
+        errors.push('Query is empty');
+        return { valid: false, fixed, errors };
+    }
+    
+    // Check for balanced quotes
+    const singleQuotes = (fixed.match(/'/g) || []).length;
+    if (singleQuotes % 2 !== 0) {
+        errors.push('Unmatched single quotes');
+    }
+    
+    // Check for balanced parentheses
+    const openParens = (fixed.match(/\(/g) || []).length;
+    const closeParens = (fixed.match(/\)/g) || []).length;
+    if (openParens !== closeParens) {
+        errors.push(`Unmatched parentheses: ${openParens} open, ${closeParens} close`);
+    }
     
     // Fix common tolower spelling mistakes (case-insensitive)
-    // tolower, toLower, Tolower, TOLOWER, tolowr, tolwer, etc.
-    fixed = fixed.replace(/to[lL]o[wW]?[er]+r?/g, 'tolower');
+    const originalFixed = fixed;
+    fixed = fixed.replace(/to[lL]o[wW]?[er]+r?\(/g, 'tolower(');
+    if (fixed !== originalFixed) {
+        console.log('[OData Fix] Corrected tolower spelling');
+    }
     
     // Fix field name case sensitivity
     fixed = fixed
@@ -109,12 +132,47 @@ function fixODataQuerySpelling(query: string): string {
                  .replace(/\bNE\b/g, 'ne');
     
     // Fix contains function spacing issues
-    // contains ( tolower( -> contains(tolower(
     fixed = fixed.replace(/contains\s*\(\s*/g, 'contains(');
     fixed = fixed.replace(/tolower\s*\(\s*/g, 'tolower(');
     
-    // Remove trailing 'and' or 'or'
-    fixed = fixed.replace(/\s+(and|or)\s*$/i, '');
+    // Check for invalid field names (not in allowed list)
+    const allowedFields = ['armRegionName', 'productName', 'meterName', 'serviceName', 'armSkuName', 'priceType', 'currencyCode'];
+    const fieldPattern = /\b(\w+)\s+eq\s+|contains\(tolower\((\w+)\)/g;
+    let fieldMatch;
+    while ((fieldMatch = fieldPattern.exec(fixed)) !== null) {
+        const field = fieldMatch[1] || fieldMatch[2];
+        if (field && !allowedFields.includes(field)) {
+            errors.push(`Invalid field name: ${field}`);
+        }
+    }
+    
+    // Check for trailing 'and' or 'or'
+    if (/\s+(and|or)\s*$/i.test(fixed)) {
+        errors.push('Query ends with logical operator');
+        fixed = fixed.replace(/\s+(and|or)\s*$/i, '');
+    }
+    
+    // Check for leading 'and' or 'or'
+    if (/^\s*(and|or)\s+/i.test(fixed)) {
+        errors.push('Query starts with logical operator');
+        fixed = fixed.replace(/^\s*(and|or)\s+/i, '');
+    }
+    
+    // Check for double logical operators
+    if (/(and|or)\s+(and|or)/i.test(fixed)) {
+        errors.push('Double logical operator found');
+    }
+    
+    // Check for common function typos
+    const invalidFunctions = fixed.match(/\b(tollower|toupper|tolwer|tolowr|conains|cotains)\(/gi);
+    if (invalidFunctions) {
+        errors.push(`Invalid function: ${invalidFunctions[0]}`);
+    }
+    
+    // Warn about using eq with productName or meterName (should use contains)
+    if (/(productName|meterName)\s+eq\s+'/i.test(fixed)) {
+        errors.push('Using eq with productName/meterName - should use contains() instead');
+    }
     
     // Log if any corrections were made
     if (fixed !== query) {
@@ -122,7 +180,8 @@ function fixODataQuerySpelling(query: string): string {
         console.log('[OData Fix] Corrected:', fixed);
     }
     
-    return fixed;
+    const valid = errors.length === 0;
+    return { valid, fixed, errors };
 }
 
 function buildConversation(prompt: string): ResponseInput {
@@ -175,7 +234,7 @@ function extractUnprocessedToolCalls(response: Response, processedIds: Set<strin
         .filter((toolCall) => !processedIds.has(toolCall.call_id));
 }
 
-function parseQueryFilter(toolCall: ResponseFunctionToolCallItem): string {
+function parseQueryFilter(toolCall: ResponseFunctionToolCallItem): { filter: string, errors: string[] } {
     try {
         const rawArgs = toolCall.arguments ?? "{}";
         const parsedArgs = JSON.parse(rawArgs);
@@ -183,14 +242,32 @@ function parseQueryFilter(toolCall: ResponseFunctionToolCallItem): string {
 
         if (!queryFilter || typeof queryFilter !== 'string') {
             console.error('[parseQueryFilter] Invalid or missing "query" field in tool arguments:', parsedArgs);
-            throw new Error('Invalid query filter generated');
+            return { 
+                filter: '', 
+                errors: ['Invalid or missing "query" field in tool arguments'] 
+            };
         }
 
-        return queryFilter;
+        // Validate and fix the query
+        const validation = validateAndFixODataQuery(queryFilter);
+        
+        if (!validation.valid) {
+            console.error('[parseQueryFilter] Query validation failed:', validation.errors);
+            console.error('[parseQueryFilter] Original query:', queryFilter);
+            console.error('[parseQueryFilter] Fixed query:', validation.fixed);
+        }
+        
+        return {
+            filter: validation.fixed,
+            errors: validation.errors
+        };
     } catch (error) {
         console.error('Failed to parse tool arguments for tool_call_id', toolCall.call_id, 'arguments:', toolCall.arguments);
         console.error('Parse error detail:', error);
-        throw new Error('Invalid tool arguments received');
+        return {
+            filter: '',
+            errors: ['Failed to parse tool arguments: ' + (error instanceof Error ? error.message : 'Unknown error')]
+        };
     }
 }
 
@@ -634,45 +711,49 @@ async function executePricingWorkflow(
         // Track whether this batch of tool calls had any invalid arguments or no-result cases
         let hadInvalidArguments = false;
         let hadNoResults = false;
+        let hadValidationErrors = false;
 
         for (let i = 0; i < toolCalls.length; i++) {
             const toolCall = toolCalls[i];
 
-            // Single-attempt tool execution; retry is delegated to the agent via analysis loop
-            let queryFilter: string;
-            try {
-                queryFilter = parseQueryFilter(toolCall);
-            } catch (error) {
-                console.error(`[ToolCall ${i + 1}/${toolCalls.length}] Invalid tool arguments:`, error);
+            // Parse and validate tool arguments
+            const parseResult = parseQueryFilter(toolCall);
+            
+            if (!parseResult.filter || parseResult.errors.length > 0) {
+                console.error(`[ToolCall ${i + 1}/${toolCalls.length}] Query validation failed:`, parseResult.errors);
                 hadInvalidArguments = true;
+                hadValidationErrors = true;
+                
                 if (hooks.onStepUpdate) {
-                    const msg = error instanceof Error ? error.message : 'Invalid tool arguments';
-                    await hooks.onStepUpdate(`⚠️ Tool call ${i + 1}/${toolCalls.length} arguments invalid: ${msg}`);
+                    await hooks.onStepUpdate(`⚠️ Query ${i + 1}/${toolCalls.length} has errors: ${parseResult.errors.join(', ')}`);
                 }
 
-                // Immediately return structured feedback so the agent can regenerate a new tool call
+                // Return detailed error feedback to force agent to regenerate
                 toolOutputs.push({
                     type: 'function_call_output',
                     call_id: toolCall.call_id,
                     output: JSON.stringify({
                         error: true,
-                        reason: 'invalid_arguments',
-                        message: 'Tool call arguments were invalid. The "query" field is missing or malformed.',
-                        rawArguments: toolCall.arguments,
-                        instruction: 'You MUST regenerate a new odata_query call based on the original natural language question, ensuring a valid "query" string is provided before responding to the user. Do not answer the question until a valid query has been executed or all retry attempts have been exhausted.'
+                        reason: 'invalid_query_syntax',
+                        message: 'The OData query has syntax errors and cannot be executed.',
+                        validationErrors: parseResult.errors,
+                        attemptedQuery: toolCall.arguments,
+                        instruction: 'CRITICAL: You MUST immediately generate a new odata_query call with corrected syntax before responding to the user. Review the validation errors and ensure: 1) All quotes and parentheses are balanced, 2) Field names are correct (armRegionName, productName, meterName), 3) Use contains(tolower(field), \'keyword\') for fuzzy matching, 4) No trailing "and" or "or", 5) All logical operators are lowercase. Do NOT answer the user until a valid query has been successfully executed.'
                     })
                 });
                 processedCalls.add(toolCall.call_id);
-                continue; // move to next tool call; agent may later issue a new one
+                continue;
             }
         
-            // Fix OData spelling and syntax errors automatically
-            queryFilter = fixODataQuerySpelling(queryFilter);
+            const queryFilter = parseResult.filter;
         
             // Log OData query to server terminal for diagnostics
             console.log('\n' + '='.repeat(80));
             console.log(`[Agent OData Query ${i + 1}/${toolCalls.length}]`);
             console.log('Filter:', queryFilter);
+            if (parseResult.errors.length > 0) {
+                console.log('Warnings:', parseResult.errors.join(', '));
+            }
             console.log('='.repeat(80) + '\n');
         
             // Show the actual query being executed
@@ -835,17 +916,25 @@ async function executePricingWorkflow(
         const hasEmptyResults = !latestPricingContext || latestPricingContext.Items.length === 0;
 
         // Retry policy:
-        // - If arguments were invalid OR query returned no results, and the agent
-        //   proposes new tool calls, we MUST process them before answering.
-        if (hasNewToolCalls && (hadInvalidArguments || hadNoResults || hasEmptyResults)) {
-            console.log('[Agent Retry] Agent is attempting new queries after invalid arguments / empty results');
+        // - If there were validation errors, invalid arguments, OR query returned no results,
+        //   and the agent proposes new tool calls, we MUST process them before answering.
+        if (hasNewToolCalls && (hadValidationErrors || hadInvalidArguments || hadNoResults || hasEmptyResults)) {
+            console.log('[Agent Retry] Agent is attempting new queries after validation errors / invalid arguments / empty results');
             if (hooks.onStepUpdate) {
-                await hooks.onStepUpdate('🔄 Adjusting search strategy based on results...');
+                await hooks.onStepUpdate('🔄 Adjusting query based on feedback...');
             }
             // Update response reference so the while-loop can process the newly proposed calls
             response = analysisResponse;
             // Continue the loop to process new tool calls
             continue;
+        }
+        
+        // If there were errors but agent didn't generate new tool calls, force one more attempt
+        if ((hadValidationErrors || hadInvalidArguments) && !hasNewToolCalls) {
+            console.warn('[Agent Retry] Agent did not generate new tool calls after errors - may need stronger prompt');
+            if (hooks.onStepUpdate) {
+                await hooks.onStepUpdate('⚠️ Query generation failed - please try rephrasing your question');
+            }
         }
 
         // Extract and notify reasoning after data analysis

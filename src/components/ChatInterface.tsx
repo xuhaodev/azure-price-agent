@@ -55,6 +55,14 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
         id: 'welcome-message'
       }
     ]);
+    
+    // Cleanup on component unmount
+    return () => {
+      if (streamingTimerRef.current !== null) {
+        clearInterval(streamingTimerRef.current);
+        streamingTimerRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -78,34 +86,28 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
   // Auto-scroll Agent Activity to keep the latest steps fully visible
   useEffect(() => {
     if (activityScrollRef.current && visibleStepsCount > 0) {
-      // Multiple RAF calls to ensure DOM is fully rendered and measured
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            const el = activityScrollRef.current;
-            if (!el) return;
-            // Force scroll to absolute bottom - add extra pixel to ensure full scroll
-            el.scrollTop = el.scrollHeight;
-          });
-        });
+      // Use single RAF with slight delay to ensure DOM is rendered
+      const rafId = requestAnimationFrame(() => {
+        const el = activityScrollRef.current;
+        if (!el) return;
+        el.scrollTop = el.scrollHeight;
       });
+      
+      return () => cancelAnimationFrame(rafId);
     }
   }, [visibleStepsCount]);
 
   // Also scroll when executionSteps content changes (for in-place updates like progress bars)
   useEffect(() => {
     if (activityScrollRef.current && executionSteps.length > 0) {
-      // Multiple RAF calls to ensure DOM has updated completely
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            const el = activityScrollRef.current;
-            if (!el) return;
-            // Force scroll to absolute bottom
-            el.scrollTop = el.scrollHeight;
-          });
-        });
+      // Use single RAF to reduce overhead
+      const rafId = requestAnimationFrame(() => {
+        const el = activityScrollRef.current;
+        if (!el) return;
+        el.scrollTop = el.scrollHeight;
       });
+      
+      return () => cancelAnimationFrame(rafId);
     }
   }, [executionSteps]);
 
@@ -123,9 +125,16 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
       scrollToBottom();
       
       // Delayed scrolls to catch any late DOM updates
-      setTimeout(scrollToBottom, 50);
-      setTimeout(scrollToBottom, 150);
-      setTimeout(scrollToBottom, 300);
+      const timer1 = setTimeout(scrollToBottom, 50);
+      const timer2 = setTimeout(scrollToBottom, 150);
+      const timer3 = setTimeout(scrollToBottom, 300);
+      
+      // Cleanup timers
+      return () => {
+        clearTimeout(timer1);
+        clearTimeout(timer2);
+        clearTimeout(timer3);
+      };
     }
   }, [activityCompleted]);
 
@@ -573,6 +582,20 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
       ));
     } finally {
       setLoading(false);
+      
+      // Clear streaming timer if still running
+      if (streamingTimerRef.current !== null) {
+        clearInterval(streamingTimerRef.current);
+        streamingTimerRef.current = null;
+      }
+      
+      // Flush any remaining streaming buffer
+      if (streamingBufferRef.current) {
+        const remaining = streamingBufferRef.current;
+        streamingBufferRef.current = '';
+        setStreamingResponse(prev => prev + remaining);
+      }
+      
       // Delay setting completion status to let user see complete step list
       // Use setTimeout to ensure execution after state update
       setTimeout(() => {
@@ -582,6 +605,13 @@ export default function ChatInterface({ onResults }: { onResults: (data: Results
   };
 
   const handleClearChat = () => {
+    // Clear any running timers to prevent memory leaks
+    if (streamingTimerRef.current !== null) {
+      clearInterval(streamingTimerRef.current);
+      streamingTimerRef.current = null;
+    }
+    streamingBufferRef.current = '';
+    
     setMessages([
       {
         role: 'assistant',
